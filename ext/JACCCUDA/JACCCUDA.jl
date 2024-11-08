@@ -105,7 +105,7 @@ function JACC.parallel_for(
     Mblocks = ceil(Int, M / Mthreads)
     Nblocks = ceil(Int, N / Nthreads)
     shmem_size = attribute(device(),CUDA.DEVICE_ATTRIBUTE_MAX_SHARED_MEMORY_PER_BLOCK)
-    CUDA.@sync @cuda threads = (Lthreads, Mthreads, Nthreads) blocks = (Lblocks, Mblocks, Nblocks) shmem = shmem_size _parallel_for_cuda_LMN(f, x...)
+    CUDA.@sync @cuda threads = (Lthreads, Mthreads, Nthreads) blocks = (Lblocks, Mblocks, Nblocks) shmem = shmem_size _parallel_for_cuda_LMN((L,M,N), f, x...)
 end
 
 function JACC.parallel_reduce(
@@ -143,9 +143,8 @@ end
 
 function _parallel_for_cuda(N, f, x...)
     i = (blockIdx().x - 1) * blockDim().x + threadIdx().x
-    if i <= N
-      f(i, x...)
-    end
+    i > N && return nothing
+    f(i, x...)
     return nothing
 end
 
@@ -157,10 +156,13 @@ function _parallel_for_cuda_MN(indexer::BlockIndexer2D, (M,N), f, x...)
     return nothing
 end
 
-function _parallel_for_cuda_LMN(f, x...)
+function _parallel_for_cuda_LMN((L,M,N), f, x...)
     i = (blockIdx().x - 1) * blockDim().x + threadIdx().x
     j = (blockIdx().y - 1) * blockDim().y + threadIdx().y
     k = (blockIdx().z - 1) * blockDim().z + threadIdx().z
+    i > L && return nothing
+    j > M && return nothing
+    k > N && return nothing
     f(i, j, k, x...)
     return nothing
 end
