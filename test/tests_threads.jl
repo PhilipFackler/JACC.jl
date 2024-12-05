@@ -1,5 +1,3 @@
-import JACC
-using Test
 
 @testset "TestBackend" begin
     @test JACC.JACCPreferences.backend == "threads"
