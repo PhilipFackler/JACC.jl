@@ -27,6 +27,8 @@ export synchronize
 
 function default_stream end
 
+ilog2(n::T) where {T <: Integer} = sizeof(T) * 8 - 1 - leading_zeros(n)
+
 const Dims = Union{Integer, NTuple{2, Integer}, NTuple{3, Integer}}
 
 @kwdef mutable struct LaunchSpec{Backend}
