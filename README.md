@@ -124,7 +124,8 @@ Roadmap:
     The first time it will take a while to download and precompile backend dependency packages.
 
     **NOTE:** `JACC.array` converts a `Base.Array` to the array type used by the current backend. If you need to use the array type in your code (for example as function parameter or in a struct, use `JACC.array_type()`:
-    ```julia
+
+   ```julia
     const JACCArray = JACC.array_type()
     function f(a::JACCArray{Float32, 1})
         # ...
@@ -140,7 +141,7 @@ Roadmap:
 - SC24 JACC [Best Research Poster Finalist](https://sc24.supercomputing.org/proceedings/poster/poster_pages/post113.html)
 - SC24 WACCPD [presentation](https://sc24.conference-program.com/presentation/?id=ws_waccpd101&sess=sess760)
   and [paper](https://conferences.computer.org/sc-wpub/pdfs/SC-W2024-6oZmigAQfgJ1GhPL0yE3pS/555400b955/555400b955.pdf)
-- MiniVATES.jl proxy application [repository](https://github.com/JuliaORNL/MiniVATES.jl)
+- The MiniVATES.jl proxy application [repository](https://github.com/JuliaORNL/MiniVATES.jl)
   and SC24 XLOOP [best paper using JACC.jl](https://conferences.computer.org/sc-wpub/pdfs/SC-W2024-6oZmigAQfgJ1GhPL0yE3pS/555400c107/555400c107.pdf)
 - [OLCF Tutorial 2025](https://www.olcf.ornl.gov/calendar/juliaforsci2025/)
 - Examples of [science kernels using JACC.jl](https://github.com/JuliaORNL/JACC-applications)
