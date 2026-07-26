@@ -1261,3 +1261,42 @@ if JACC.backend != "metal" && JACC.backend != "oneapi"
         @test all(0 .<= x_host .<= 1)
     end
 end
+
+# Regression tests for 2D `parallel_for`/`parallel_reduce` on NON-SQUARE arrays.
+#
+# On GPU backends, 2D kernels map one array dimension to the grid x-axis and the
+# other to the y-axis. When `M < N`, the axes are swapped so the larger extent
+# lands on the x-axis (whose grid-dimension limit is far larger than the y-axis).
+# All existing 2D tests use square `(N, N)` matrices, which never exercise that
+# swap, so bugs in the swapped index mapping / launch configuration are invisible.
+# These cases use both wide (`M < N`) and tall (`M > N`) shapes across a range of
+# aspect ratios and verify that every cell is covered exactly.
+@testset "parallel_for non-square 2D" begin
+    nonsquare_dims = [(2, 5), (5, 2), (7, 13), (13, 7),
+        (3, 257), (257, 3), (128, 1024), (1024, 128)]
+    write2d(i, j, A) = (@inbounds A[i, j] = (j - 1) * size(A, 1) + i; nothing)
+    for (M, N) in nonsquare_dims
+        exp = FloatType[(j - 1) * M + i for i in 1:M, j in 1:N]
+
+        # auto-configured launch
+        A = JACC.zeros(FloatType, M, N)
+        JACC.parallel_for((M, N), write2d, A)
+        @test JACC.to_host(A) == exp
+
+        # explicit thread block: the swap (when needed) must still cover every cell
+        B = JACC.zeros(FloatType, M, N)
+        JACC.parallel_for(JACC.launch_spec(; threads = (16, 16)), (M, N), write2d, B)
+        @test JACC.to_host(B) == exp
+    end
+end
+
+@testset "parallel_reduce non-square 2D" begin
+    nonsquare_dims = [(2, 5), (5, 2), (7, 13), (13, 7),
+        (3, 257), (257, 3), (128, 1024), (1024, 128)]
+    elem2d(i, j, A) = (@inbounds A[i, j])
+    for (M, N) in nonsquare_dims
+        A = JACC.ones(FloatType, M, N)
+        s = JACC.parallel_reduce((M, N), elem2d, A; op = +, init = zero(FloatType))
+        @test s == FloatType(M * N)
+    end
+end
