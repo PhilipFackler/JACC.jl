@@ -119,6 +119,15 @@ end
 const imports = Expr(:block, _backend_import.(list)...)
 
 end
+
+module Metal
+
+import Base: String
+import Preferences: @load_preference
+const array_storage = @load_preference("metal_array_storage", "private")
+const _ARRAY_STORAGE = Ref(String(array_storage))
+
+end
 end
 
 const backend = Preferences.Backend.default
@@ -140,6 +149,8 @@ function unset_backend()
     @delete_preferences!("default_backend")
     @delete_preferences!("backends")
     @delete_preferences!("placement")
+    @delete_preferences!("metal_array_storage")
+    Preferences.Metal._ARRAY_STORAGE[] = "private"
     @info """
         Backend preferences deleted
         Restart your Julia session for this change to take effect!
@@ -171,10 +182,27 @@ function set_default_backend(new_backend::Symbol)
     set_default_backend(String(new_backend))
 end
 
-function set_backend(b::AbstractString)
+function _set_metal_array_storage(storage::Union{AbstractString, Symbol})
+    value = lowercase(String(storage))
+    value in ("private", "shared") || throw(ArgumentError(
+        "Invalid Metal array storage: $(repr(storage)); expected :private or :shared"))
+    Preferences.Metal._ARRAY_STORAGE[] = value
+    @set_preferences!("metal_array_storage"=>value)
+    @info "Metal array storage set to :$(value)"
+end
+
+function set_backend(b::AbstractString; storage = nothing)
     nb = lowercase(b)
+    if storage !== nothing
+        nb == "metal" || throw(ArgumentError(
+            "the storage preference is only valid for the Metal backend"))
+        value = lowercase(String(storage))
+        value in ("private", "shared") || throw(ArgumentError(
+            "Invalid Metal array storage: $(repr(storage)); expected :private or :shared"))
+    end
     if Preferences.Backend._LIST[] == [nb]
         if Preferences.Backend._DEFAULT[] == nb
+            storage === nothing || _set_metal_array_storage(storage)
             return
         end
     else
@@ -182,9 +210,10 @@ function set_backend(b::AbstractString)
         unset_backend()
     end
     set_default_backend(nb)
+    storage === nothing || _set_metal_array_storage(storage)
 end
 
-set_backend(b::Symbol) = set_backend(String(b))
+set_backend(b::Symbol; kw...) = set_backend(String(b); kw...)
 
 function add_backend(new_backend::AbstractString)
     new_backend_lc = lowercase(new_backend)

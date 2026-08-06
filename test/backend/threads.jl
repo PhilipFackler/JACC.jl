@@ -53,8 +53,7 @@ end
 end
 
 @testset "array_storage_unsupported" begin
-    @test_throws ArgumentError JACC.array(
-        ones(Float32, 10); storage = :shared)
+    @test_throws MethodError JACC.array(ones(Float32, 10); storage = :shared)
 end
 
 include("preferences.jl")

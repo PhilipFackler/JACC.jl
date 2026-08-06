@@ -409,19 +409,11 @@ JACC.sync_workgroup(::MetalBackend) = Metal.threadgroup_barrier()
 
 JACC.array_type(::MetalBackend) = Metal.MtlArray
 
-JACC.array(::MetalBackend, x::Base.Array) = Metal.MtlArray(x)
-
-function _storage_mode(storage::Symbol)
-    storage === :shared && return Metal.SharedStorage
-    storage === :private && return Metal.PrivateStorage
-    throw(ArgumentError(string("unknown storage mode ", repr(storage),
-        " for the Metal backend; supported values are :shared and :private")))
-end
-
-function JACC._array_storage(
-        ::MetalBackend, x::AbstractArray, storage::Symbol)
-    S = _storage_mode(storage)
-    return Metal.MtlArray{eltype(x), ndims(x), S}(x)
+function JACC._array(::MetalBackend, x::AbstractArray)
+    if JACC.Preferences.Metal._ARRAY_STORAGE[] == "shared"
+        return Metal.MtlArray{eltype(x), ndims(x), Metal.SharedStorage}(x)
+    end
+    return Metal.MtlArray(x)
 end
 
 end # module MetalExt

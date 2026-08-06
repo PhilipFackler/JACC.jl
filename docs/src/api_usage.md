@@ -54,7 +54,7 @@ JACC.@init_backend
 
 ## Memory allocation
 
-- **`JACC.array()`**: create a new array on the device with the specified type and size, or copy a host array to the device. On the Metal backend, `JACC.array(x; storage = :shared)` copies into unified (`SharedStorage`) memory visible to both CPU and GPU instead of the default device-private storage.
+- **`JACC.array()`**: create a new array on the device with the specified type and size, or copy a host array to the device. Metal projects can opt into unified (`SharedStorage`) memory for host-array copies with `JACC.set_backend("Metal"; storage = :shared)`; portable code continues to call `JACC.array(x)` without backend-specific keywords. The default is `:private`. Shared storage removes the construction copy, but its GPU-bandwidth cost for compute-bound workloads is unmeasured here.
 - **`JACC.zeros`**: create a new array on the device filled with zeros.
 - **`JACC.ones`**: create a new array on the device filled with ones.
 - **`JACC.fill`**: create a new array on the device filled with a specified value.
