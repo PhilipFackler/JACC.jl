@@ -18,12 +18,19 @@ function test_preferences(bksym::Symbol)
         @test isempty(JACC.Preferences.Backend._PLACE[])
     end
 
+    if bkstr == "metal"
+        @suppress JACC.set_backend(bkstr; storage = :shared)
+        @test load_preference(JACC, "metal_array_storage") == "shared"
+    end
+
     # Clear settings
     @suppress JACC.unset_backend()
     @test isempty(JACC.Preferences.Backend._LIST[])
     @test isempty(JACC.Preferences.Backend._PLACE[])
     @test load_preference(JACC, "backends") == nothing
     @test load_preference(JACC, "default_backend") == nothing
+    @test load_preference(JACC, "metal_array_storage") == nothing
+    @test JACC.Preferences.Metal._ARRAY_STORAGE[] == "private"
 
     # "not a backend"
     @test_throws ArgumentError JACC.set_backend("NAB")
