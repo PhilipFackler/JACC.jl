@@ -52,6 +52,11 @@ end
     @test typeof(x) == Array{Complex{Float32}, 3}
 end
 
+@testset "array_storage_unsupported" begin
+    @test_throws ArgumentError JACC.array(
+        ones(Float32, 10); storage = :shared)
+end
+
 include("preferences.jl")
 
 @testset "preferences" begin

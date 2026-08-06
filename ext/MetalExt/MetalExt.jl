@@ -411,4 +411,17 @@ JACC.array_type(::MetalBackend) = Metal.MtlArray
 
 JACC.array(::MetalBackend, x::Base.Array) = Metal.MtlArray(x)
 
+function _storage_mode(storage::Symbol)
+    storage === :shared && return Metal.SharedStorage
+    storage === :private && return Metal.PrivateStorage
+    throw(ArgumentError(string("unknown storage mode ", repr(storage),
+        " for the Metal backend; supported values are :shared and :private")))
+end
+
+function JACC._array_storage(
+        ::MetalBackend, x::AbstractArray, storage::Symbol)
+    S = _storage_mode(storage)
+    return Metal.MtlArray{eltype(x), ndims(x), S}(x)
+end
+
 end # module MetalExt

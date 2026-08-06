@@ -71,10 +71,29 @@ end
 
 """
     array([T=default_float()], dims...)
+    array(x::AbstractArray; storage = nothing)
 
-Create an uninitialized array on the device with the specified type and size.
+Create an uninitialized array on the device with the specified type and size,
+or copy the host array `x` to the device.
+
+The `storage` keyword (copy form only) requests a backend-specific storage
+mode. With the default `storage = nothing` the behavior is identical to
+[`to_device`](@ref). Currently only the Metal backend supports it:
+`:shared` copies into unified memory visible to both CPU and GPU, and
+`:private` copies into device-private storage (the Metal default). Any
+other backend throws an `ArgumentError` for a value other than `nothing`.
 """
-array(x::AbstractArray) = to_device(x)
+function array(x::AbstractArray; storage = nothing)
+    storage === nothing && return to_device(x)
+    return _array_storage(default_backend(), x, storage)
+end
+
+function _array_storage(bknd, x::AbstractArray, storage)
+    throw(ArgumentError(string("storage mode ", repr(storage),
+        " is not supported by the ", nameof(typeof(bknd)),
+        "; the `storage` keyword of `JACC.array` currently requires the Metal backend")))
+end
+
 array(::Type{T}, dims) where {T} = array_type(){T, length(dims)}(undef, dims)
 array(::Type{T}, dims...) where {T} = array(T, dims)
 array(dims) = array(default_float(), dims)

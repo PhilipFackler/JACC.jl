@@ -59,6 +59,12 @@ end
     @test ndims(x) == 3
     @test eltype(x) == Complex{Float32}
     @test size(x) == (5, 5, 5)
+
+    # copy from host; storage = nothing is the default path
+    h = ones(Float32, 10)
+    x = JACC.array(h)
+    @test typeof(JACC.array(h; storage = nothing)) == typeof(x)
+    @test JACC.to_host(x) == h
 end
 
 @testset "transfer!" begin
