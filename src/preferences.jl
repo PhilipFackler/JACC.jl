@@ -114,6 +114,10 @@ function _runtime_extension_preferences(preferences)
 end
 
 const _EXT_PREFS = Ref(_runtime_extension_preferences(extension_preferences))
+# Bumped on every mutation of _EXT_PREFS so extensions can cheaply detect
+# staleness of any value they cache from it, without recomputing on every
+# call. See ext/MetalExt/MetalExt.jl `_array_storage` for the reader side.
+const _EXT_PREFS_GENERATION = Ref(0)
 
 const package_names = ["CUDA", "AMDGPU", "oneAPI", "Metal"]
 
@@ -165,6 +169,7 @@ function unset_backend()
     @delete_preferences!("placement")
     @delete_preferences!("extension_preferences")
     empty!(Preferences.Backend._EXT_PREFS[])
+    Preferences.Backend._EXT_PREFS_GENERATION[] += 1
     @info """
         Backend preferences deleted
         Restart your Julia session for this change to take effect!
@@ -208,6 +213,7 @@ function _set_extension_preferences(backend::String, kw)
         for (name, settings) in preferences)
     @set_preferences!("extension_preferences"=>persisted)
     Preferences.Backend._EXT_PREFS[] = preferences
+    Preferences.Backend._EXT_PREFS_GENERATION[] += 1
 end
 
 function set_backend(b::AbstractString; kw...)
