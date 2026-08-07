@@ -91,6 +91,29 @@ const _DEFAULT = Ref(String(default))
 const list = @load_preference("backends", ["threads"])
 const _LIST = Ref(deepcopy(list))
 const _PLACE = Ref(@load_preference("placement", Dict{String, String}()))
+const extension_preferences = @load_preference(
+    "extension_preferences", Dict{String, Any}())
+
+_serialize_extension_preference(value::Symbol) = String(value)
+function _serialize_extension_preference(value::AbstractDict)
+    return Dict(
+        String(key) => _serialize_extension_preference(item)
+        for (key, item) in value)
+end
+function _serialize_extension_preference(value::Union{Tuple, AbstractVector})
+    return [_serialize_extension_preference(item) for item in value]
+end
+_serialize_extension_preference(value) = value
+
+function _runtime_extension_preferences(preferences)
+    return Dict{String, Dict{Symbol, Any}}(
+        String(backend) => Dict{Symbol, Any}(
+            Symbol(key) => value
+            for (key, value) in values)
+        for (backend, values) in preferences)
+end
+
+const _EXT_PREFS = Ref(_runtime_extension_preferences(extension_preferences))
 
 const package_names = ["CUDA", "AMDGPU", "oneAPI", "Metal"]
 
@@ -119,15 +142,6 @@ end
 const imports = Expr(:block, _backend_import.(list)...)
 
 end
-
-module Metal
-
-import Base: String
-import Preferences: @load_preference
-const array_storage = @load_preference("metal_array_storage", "private")
-const _ARRAY_STORAGE = Ref(String(array_storage))
-
-end
 end
 
 const backend = Preferences.Backend.default
@@ -149,8 +163,8 @@ function unset_backend()
     @delete_preferences!("default_backend")
     @delete_preferences!("backends")
     @delete_preferences!("placement")
-    @delete_preferences!("metal_array_storage")
-    Preferences.Metal._ARRAY_STORAGE[] = "private"
+    @delete_preferences!("extension_preferences")
+    empty!(Preferences.Backend._EXT_PREFS[])
     @info """
         Backend preferences deleted
         Restart your Julia session for this change to take effect!
@@ -182,27 +196,25 @@ function set_default_backend(new_backend::Symbol)
     set_default_backend(String(new_backend))
 end
 
-function _set_metal_array_storage(storage::Union{AbstractString, Symbol})
-    value = lowercase(String(storage))
-    value in ("private", "shared") || throw(ArgumentError(
-        "Invalid Metal array storage: $(repr(storage)); expected :private or :shared"))
-    Preferences.Metal._ARRAY_STORAGE[] = value
-    @set_preferences!("metal_array_storage"=>value)
-    @info "Metal array storage set to :$(value)"
+function _set_extension_preferences(backend::String, kw)
+    values = Dict{Symbol, Any}(pairs((; kw...)))
+    isempty(values) && return
+
+    preferences = deepcopy(Preferences.Backend._EXT_PREFS[])
+    preferences[backend] = values
+    serialize = Preferences.Backend._serialize_extension_preference
+    persisted = Dict(
+        name => serialize(settings)
+        for (name, settings) in preferences)
+    @set_preferences!("extension_preferences"=>persisted)
+    Preferences.Backend._EXT_PREFS[] = preferences
 end
 
-function set_backend(b::AbstractString; storage = nothing)
+function set_backend(b::AbstractString; kw...)
     nb = lowercase(b)
-    if storage !== nothing
-        nb == "metal" || throw(ArgumentError(
-            "the storage preference is only valid for the Metal backend"))
-        value = lowercase(String(storage))
-        value in ("private", "shared") || throw(ArgumentError(
-            "Invalid Metal array storage: $(repr(storage)); expected :private or :shared"))
-    end
     if Preferences.Backend._LIST[] == [nb]
         if Preferences.Backend._DEFAULT[] == nb
-            storage === nothing || _set_metal_array_storage(storage)
+            _set_extension_preferences(nb, kw)
             return
         end
     else
@@ -210,7 +222,7 @@ function set_backend(b::AbstractString; storage = nothing)
         unset_backend()
     end
     set_default_backend(nb)
-    storage === nothing || _set_metal_array_storage(storage)
+    _set_extension_preferences(nb, kw)
 end
 
 set_backend(b::Symbol; kw...) = set_backend(String(b); kw...)

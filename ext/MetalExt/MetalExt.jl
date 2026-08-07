@@ -409,8 +409,18 @@ JACC.sync_workgroup(::MetalBackend) = Metal.threadgroup_barrier()
 
 JACC.array_type(::MetalBackend) = Metal.MtlArray
 
+function _array_storage()
+    preferences = get(
+        JACC.Preferences.Backend._EXT_PREFS[], "metal", Dict{Symbol, Any}())
+    storage = lowercase(String(get(preferences, :storage, "private")))
+    storage in ("private", "shared") || throw(ArgumentError(
+        "Invalid Metal array storage: $(repr(storage)); " *
+        "expected :private or :shared"))
+    return storage
+end
+
 function JACC._array(::MetalBackend, x::AbstractArray)
-    if JACC.Preferences.Metal._ARRAY_STORAGE[] == "shared"
+    if _array_storage() == "shared"
         return Metal.MtlArray{eltype(x), ndims(x), Metal.SharedStorage}(x)
     end
     return Metal.MtlArray(x)
