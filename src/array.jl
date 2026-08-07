@@ -78,7 +78,7 @@ or copy the host array `x` to the device.
 
 Backend-specific allocation policy is configured outside portable code. For
 example, `set_backend("Metal"; storage = :shared)` makes host-array copies use
-Metal unified memory for that project. The default remains device-private.
+Metal unified memory for that project. Host-array copies default to device-private.
 """
 array(x::AbstractArray) = _array(default_backend(), x)
 _array(::Any, x::AbstractArray) = to_device(x)

@@ -28,6 +28,10 @@ end
     h = ones(Float32, N)
     x = JACC.array(h)
     @test typeof(x) == MtlArray{Float32, 1, Metal.PrivateStorage}
+    @test JACC.array(x) === x
+    @test JACC.array(JACC.default_backend(), x) === x
+    @test JACC.array(JACC.default_backend(), h) isa
+          MtlArray{Float32, 1, Metal.PrivateStorage}
     try
         @suppress JACC.set_backend("Metal"; storage = :shared)
         preferences = load_preference(JACC, "extension_preferences")
@@ -38,13 +42,20 @@ end
         @test typeof(xs) == MtlArray{Float32, 1, Metal.SharedStorage}
         @test Metal.is_shared(xs)
         @test Array(xs) == h
+        @test JACC.array(xs) === xs
+        @test JACC.array(JACC.default_backend(), xs) === xs
+        @test JACC.array(JACC.default_backend(), h) isa
+              MtlArray{Float32, 1, Metal.SharedStorage}
         h2 = ones(Float32, N, N)
         xs2 = JACC.array(h2)
         @test typeof(xs2) == MtlArray{Float32, 2, Metal.SharedStorage}
     finally
         @suppress JACC.set_backend("Metal"; storage = :private)
     end
+    @test JACC.array(h) isa MtlArray{Float32, 1, Metal.PrivateStorage}
     @suppress JACC.set_backend("Metal"; storage = :bogus)
+    @test_throws ArgumentError JACC.array(h)
+    @suppress JACC.set_backend("Metal"; storage = 1)
     @test_throws ArgumentError JACC.array(h)
     @suppress JACC.set_backend("Metal"; storage = :private)
 end
