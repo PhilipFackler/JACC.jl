@@ -59,6 +59,11 @@ end
     @test ndims(x) == 3
     @test eltype(x) == Complex{Float32}
     @test size(x) == (5, 5, 5)
+
+    # Copy from host using the backend's configured storage policy.
+    h = ones(Float32, 10)
+    x = JACC.array(h)
+    @test JACC.to_host(x) == h
 end
 
 @testset "transfer!" begin

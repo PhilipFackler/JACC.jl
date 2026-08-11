@@ -91,6 +91,33 @@ const _DEFAULT = Ref(String(default))
 const list = @load_preference("backends", ["threads"])
 const _LIST = Ref(deepcopy(list))
 const _PLACE = Ref(@load_preference("placement", Dict{String, String}()))
+const extension_preferences = @load_preference(
+    "extension_preferences", Dict{String, Any}())
+
+_serialize_extension_preference(value::Symbol) = String(value)
+function _serialize_extension_preference(value::AbstractDict)
+    return Dict(
+        String(key) => _serialize_extension_preference(item)
+        for (key, item) in value)
+end
+function _serialize_extension_preference(value::Union{Tuple, AbstractVector})
+    return [_serialize_extension_preference(item) for item in value]
+end
+_serialize_extension_preference(value) = value
+
+function _runtime_extension_preferences(preferences)
+    return Dict{String, Dict{Symbol, Any}}(
+        String(backend) => Dict{Symbol, Any}(
+            Symbol(key) => value
+            for (key, value) in values)
+        for (backend, values) in preferences)
+end
+
+const _EXT_PREFS = Ref(_runtime_extension_preferences(extension_preferences))
+# Bumped on every mutation of _EXT_PREFS so extensions can cheaply detect
+# staleness of any value they cache from it, without recomputing on every
+# call. See ext/MetalExt/MetalExt.jl `_array_storage` for the reader side.
+const _EXT_PREFS_GENERATION = Ref(0)
 
 const package_names = ["CUDA", "AMDGPU", "oneAPI", "Metal"]
 
@@ -140,6 +167,9 @@ function unset_backend()
     @delete_preferences!("default_backend")
     @delete_preferences!("backends")
     @delete_preferences!("placement")
+    @delete_preferences!("extension_preferences")
+    empty!(Preferences.Backend._EXT_PREFS[])
+    Preferences.Backend._EXT_PREFS_GENERATION[] += 1
     @info """
         Backend preferences deleted
         Restart your Julia session for this change to take effect!
@@ -171,10 +201,26 @@ function set_default_backend(new_backend::Symbol)
     set_default_backend(String(new_backend))
 end
 
-function set_backend(b::AbstractString)
+function _set_extension_preferences(backend::String, kw)
+    values = Dict{Symbol, Any}(pairs((; kw...)))
+    isempty(values) && return
+
+    preferences = deepcopy(Preferences.Backend._EXT_PREFS[])
+    preferences[backend] = values
+    serialize = Preferences.Backend._serialize_extension_preference
+    persisted = Dict(
+        name => serialize(settings)
+        for (name, settings) in preferences)
+    @set_preferences!("extension_preferences"=>persisted)
+    Preferences.Backend._EXT_PREFS[] = preferences
+    Preferences.Backend._EXT_PREFS_GENERATION[] += 1
+end
+
+function set_backend(b::AbstractString; kw...)
     nb = lowercase(b)
     if Preferences.Backend._LIST[] == [nb]
         if Preferences.Backend._DEFAULT[] == nb
+            _set_extension_preferences(nb, kw)
             return
         end
     else
@@ -182,9 +228,10 @@ function set_backend(b::AbstractString)
         unset_backend()
     end
     set_default_backend(nb)
+    _set_extension_preferences(nb, kw)
 end
 
-set_backend(b::Symbol) = set_backend(String(b))
+set_backend(b::Symbol; kw...) = set_backend(String(b); kw...)
 
 function add_backend(new_backend::AbstractString)
     new_backend_lc = lowercase(new_backend)

@@ -18,12 +18,20 @@ function test_preferences(bksym::Symbol)
         @test isempty(JACC.Preferences.Backend._PLACE[])
     end
 
+    @suppress JACC.set_backend(bkstr; test_preference = true)
+    extension_preferences = load_preference(JACC, "extension_preferences")
+    @test extension_preferences[bkstr]["test_preference"]
+    @test JACC.Preferences.Backend._EXT_PREFS[][bkstr] ==
+          Dict(:test_preference => true)
+
     # Clear settings
     @suppress JACC.unset_backend()
     @test isempty(JACC.Preferences.Backend._LIST[])
     @test isempty(JACC.Preferences.Backend._PLACE[])
     @test load_preference(JACC, "backends") == nothing
     @test load_preference(JACC, "default_backend") == nothing
+    @test load_preference(JACC, "extension_preferences") == nothing
+    @test isempty(JACC.Preferences.Backend._EXT_PREFS[])
 
     # "not a backend"
     @test_throws ArgumentError JACC.set_backend("NAB")

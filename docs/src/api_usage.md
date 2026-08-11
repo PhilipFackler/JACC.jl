@@ -10,7 +10,7 @@ JACC APIs consist of three main components:
 
 ## Backend selection
 
-- **`JACC.set_backend`**: allows selecting the runtime backend on **CPU**: `Threads` (default) and **GPU**: `CUDA`, `AMDGPU`, `oneAPI`. Uses Preferences.jl and stores the selected backend in a [LocalPreferences.jl](https://github.com/JuliaPackaging/Preferences.jl) file if JACC.jl is a project dependency. Use `JACC.set_backend` prior to running any code targeting a particular backend.
+- **`JACC.set_backend`**: allows selecting the runtime backend on **CPU**: `Threads` (default) and **GPU**: `CUDA`, `AMDGPU`, `oneAPI`, `Metal`. Uses Preferences.jl and stores the selected backend in a [LocalPreferences.toml](https://github.com/JuliaPackaging/Preferences.jl) file if JACC.jl is a project dependency. Use `JACC.set_backend` prior to running any code targeting a particular backend.
 
 Example:
 ```julia
@@ -54,7 +54,7 @@ JACC.@init_backend
 
 ## Memory allocation
 
-- **`JACC.array()`**: create a new array on the device with the specified type and size.
+- **`JACC.array()`**: create a new array on the device with the specified type and size, or copy a host array to the device. Metal projects can opt into unified (`SharedStorage`) memory for host-array copies with `JACC.set_backend("Metal"; storage = :shared)`; portable code continues to call `JACC.array(x)` without backend-specific keywords. Host-array copies default to `:private`. Shared storage avoids the private-storage transfer path; its construction-latency and GPU-bandwidth tradeoffs should be measured for the target workload.
 - **`JACC.zeros`**: create a new array on the device filled with zeros.
 - **`JACC.ones`**: create a new array on the device filled with ones.
 - **`JACC.fill`**: create a new array on the device filled with a specified value.

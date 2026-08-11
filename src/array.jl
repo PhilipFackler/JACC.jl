@@ -71,10 +71,18 @@ end
 
 """
     array([T=default_float()], dims...)
+    array(x::AbstractArray)
 
-Create an uninitialized array on the device with the specified type and size.
+Create an uninitialized array on the device with the specified type and size,
+or copy the host array `x` to the device.
+
+Backend-specific allocation policy is configured outside portable code. For
+example, `set_backend("Metal"; storage = :shared)` makes host-array copies use
+Metal unified memory for that project. Host-array copies default to device-private.
 """
-array(x::AbstractArray) = to_device(x)
+array(x::AbstractArray) = _array(default_backend(), x)
+_array(::Any, x::AbstractArray) = to_device(x)
+
 array(::Type{T}, dims) where {T} = array_type(){T, length(dims)}(undef, dims)
 array(::Type{T}, dims...) where {T} = array(T, dims)
 array(dims) = array(default_float(), dims)

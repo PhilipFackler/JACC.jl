@@ -409,6 +409,49 @@ JACC.sync_workgroup(::MetalBackend) = Metal.threadgroup_barrier()
 
 JACC.array_type(::MetalBackend) = Metal.MtlArray
 
-JACC.array(::MetalBackend, x::Base.Array) = Metal.MtlArray(x)
+function _compute_array_storage()
+    preferences = get(
+        JACC.Preferences.Backend._EXT_PREFS[], "metal", Dict{Symbol, Any}())
+    value = get(preferences, :storage, "private")
+    value isa Union{AbstractString, Symbol} || throw(ArgumentError(
+        "Invalid Metal array storage: $(repr(value)); " *
+        "expected :private or :shared"))
+    storage = lowercase(String(value))
+    storage in ("private", "shared") || throw(ArgumentError(
+        "Invalid Metal array storage: $(repr(value)); " *
+        "expected :private or :shared"))
+    return storage
+end
+
+# Cached module global rather than a plain module-load-once value: `storage`
+# is one of the extension preferences `set_backend` is documented (and
+# tested, see array_storage_preference in test/backend/metal.jl) to apply
+# live within the same Julia session, without a restart. _EXT_PREFS_GENERATION
+# is bumped on every write, so this stays a cheap Int comparison on the
+# array-allocation hot path instead of a Dict lookup plus revalidation on
+# every call, while still tracking live changes.
+const _ARRAY_STORAGE_CACHE = Ref{Tuple{Int, String}}((-1, ""))
+
+function _array_storage()
+    generation = JACC.Preferences.Backend._EXT_PREFS_GENERATION[]
+    cached_generation, cached_value = _ARRAY_STORAGE_CACHE[]
+    if cached_generation == generation
+        return cached_value
+    end
+    value = _compute_array_storage()
+    _ARRAY_STORAGE_CACHE[] = (generation, value)
+    return value
+end
+
+function JACC._array(::MetalBackend, x::AbstractArray)
+    if _array_storage() == "shared"
+        return Metal.MtlArray{eltype(x), ndims(x), Metal.SharedStorage}(x)
+    end
+    return Metal.MtlArray{eltype(x), ndims(x), Metal.PrivateStorage}(x)
+end
+
+JACC._array(::MetalBackend, x::Metal.MtlArray) = x
+JACC.array(backend::MetalBackend, x::Base.Array) = JACC._array(backend, x)
+JACC.array(::MetalBackend, x::Metal.MtlArray) = x
 
 end # module MetalExt
