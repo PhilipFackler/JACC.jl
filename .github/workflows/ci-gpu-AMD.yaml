@@ -86,7 +86,7 @@ jobs:
            source ~/.bashrc
            julia --version
            echo $JULIA_DEPOT_PATH
-           julia --project -e 'using Pkg; Pkg.test(coverage=true, julia_args=["--check-bounds=no", "--compiled-modules=yes", "--depwarn=yes"], force_latest_compatible_version=false, allow_reresolve=true)'
+           julia --project -e 'using Pkg; Pkg.test(coverage=true, julia_args=["--check-bounds=yes", "--compiled-modules=yes", "--depwarn=yes"], force_latest_compatible_version=false, allow_reresolve=true)'
 
       - name: Process Coverage
         if: steps.check.outputs.triggered == 'true'
@@ -196,7 +196,7 @@ jobs:
           source ~/.bashrc
           julia --version
           echo $JULIA_DEPOT_PATH
-          julia --project -e 'using Pkg; Pkg.test(coverage=true, julia_args=["--check-bounds=no", "--compiled-modules=yes", "--depwarn=yes"], force_latest_compatible_version=false, allow_reresolve=true)'
+          julia --project -e 'using Pkg; Pkg.test(coverage=true, julia_args=["--check-bounds=yes", "--compiled-modules=yes", "--depwarn=yes"], force_latest_compatible_version=false, allow_reresolve=true)'
 
       - name: Process Coverage
         if: steps.check.outputs.triggered == 'true'
