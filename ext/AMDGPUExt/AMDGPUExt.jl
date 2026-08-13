@@ -597,6 +597,47 @@ JACC.sync_workgroup(::AMDGPUBackend) = AMDGPU.sync_workgroup()
 
 JACC.array_type(::AMDGPUBackend) = AMDGPU.ROCArray
 
-JACC.array(::AMDGPUBackend, x::AbstractArray) = AMDGPU.ROCArray(x)
+function _compute_array_storage()
+    preferences = get(
+        JACC.Preferences.Backend._EXT_PREFS[], "amdgpu", Dict{Symbol, Any}())
+    value = get(preferences, :storage, "device")
+    value isa Union{AbstractString, Symbol} || throw(ArgumentError(
+        "Invalid AMDGPU array storage: $(repr(value)); " *
+        "expected :device or :host"))
+    storage = lowercase(String(value))
+    storage in ("device", "host") || throw(ArgumentError(
+        "Invalid AMDGPU array storage: $(repr(value)); " *
+        "expected :device or :host"))
+    return storage
+end
+
+# Same live-preference cache as ext/MetalExt/MetalExt.jl `_array_storage`:
+# _EXT_PREFS_GENERATION is bumped on every set_backend write, so this is a
+# cheap Int comparison on the allocation hot path.
+const _ARRAY_STORAGE_CACHE = Ref{Tuple{Int, String}}((-1, ""))
+
+function _array_storage()
+    generation = JACC.Preferences.Backend._EXT_PREFS_GENERATION[]
+    cached_generation, cached_value = _ARRAY_STORAGE_CACHE[]
+    if cached_generation == generation
+        return cached_value
+    end
+    value = _compute_array_storage()
+    _ARRAY_STORAGE_CACHE[] = (generation, value)
+    return value
+end
+
+function JACC._array(::AMDGPUBackend, x::AbstractArray)
+    if _array_storage() == "host"
+        # hipHostMalloc-backed pinned memory: zero-copy CPU+GPU access on
+        # APUs, fast DMA on discrete GPUs.
+        return AMDGPU.ROCArray{eltype(x), ndims(x), AMDGPU.Mem.HostBuffer}(x)
+    end
+    return AMDGPU.ROCArray{eltype(x), ndims(x), AMDGPU.Mem.HIPBuffer}(x)
+end
+
+JACC._array(::AMDGPUBackend, x::AMDGPU.ROCArray) = x
+JACC.array(backend::AMDGPUBackend, x::AbstractArray) = JACC._array(backend, x)
+JACC.array(::AMDGPUBackend, x::AMDGPU.ROCArray) = x
 
 end # module AMDGPUExt
