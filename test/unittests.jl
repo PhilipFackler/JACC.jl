@@ -1056,7 +1056,7 @@ end
     @test f2≈JACC.to_host(df2) rtol=1e-1
 end
 
-if JACC.backend != "amdgpu" && JACC.backend != "metal"
+if JACC.backend != "metal"
     @testset "Multi" begin
         # Unidimensional arrays
         SIZE = 10
@@ -1168,7 +1168,7 @@ else
     end
 end
 
-if JACC.backend != "amdgpu" && JACC.backend != "metal"
+if JACC.backend != "metal"
     @testset "CG Async" begin
         function matvecmul(i, a1, a2, a3, x, y, SIZE)
             if i == 1
