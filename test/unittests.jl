@@ -1160,6 +1160,12 @@ if JACC.backend != "amdgpu" && JACC.backend != "metal"
         end
         @test cond <= 1e-14
     end
+else
+    # A source-level exclusion leaves no trace in the report, so a green run on
+    # these backends reads as Multi coverage it does not have (JACC.jl#381).
+    @testset "Multi (not run on $(JACC.backend), see JACC.jl#381)" begin
+        @test_skip "JACC.Multi on $(JACC.backend)"
+    end
 end
 
 if JACC.backend != "amdgpu" && JACC.backend != "metal"
@@ -1222,6 +1228,10 @@ if JACC.backend != "amdgpu" && JACC.backend != "metal"
             copyto!(p, r_aux)
         end
         @test cond[1, 1] <= 1e-14
+    end
+else
+    @testset "CG Async (not run on $(JACC.backend), see JACC.jl#381)" begin
+        @test_skip "JACC.Multi async CG on $(JACC.backend)"
     end
 end
 
