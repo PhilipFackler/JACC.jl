@@ -101,8 +101,9 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: lcov.info
           fail_ci_if_error: true
-          base_sha: ${{fromJson(steps.request.outputs.data).head.sha}}
-          override_pr: ${{ github.event.pull_request.number }}
+          override_commit: ${{fromJson(steps.request.outputs.data).head.sha}}
+          override_branch: ${{steps.pr_data.outputs.branch}}
+          override_pr: ${{github.event.issue.number}}
           flags: amdgpu
 
       - name: Report PR status
@@ -211,8 +212,9 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: lcov.info
           fail_ci_if_error: true
-          base_sha: ${{fromJson(steps.request.outputs.data).head.sha}}
-          override_pr: ${{ github.event.pull_request.number }}
+          override_commit: ${{fromJson(steps.request.outputs.data).head.sha}}
+          override_branch: ${{steps.pr_data.outputs.branch}}
+          override_pr: ${{github.event.issue.number}}
           flags: amdgpu
 
       - name: Report PR status
