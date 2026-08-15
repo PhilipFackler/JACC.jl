@@ -21,7 +21,7 @@
 
 CPU/GPU portable `array`/`parallel_for`/`parallel_reduce` in Julia for productive science.
 
-JACC.jl leverages the LLVM-based Julia language and ecosystem, in particular [JuliaGPU](https://juliagpu.org/), and [optional package
+JACC.jl leverages the LLVM-compiled Julia language and ecosystem, in particular [JuliaGPU](https://juliagpu.org/), and [optional package
 extensions](https://julialang.org/blog/2023/04/julia-1.9-highlights/#package_extensions). Similar to portable layers like Kokkos, RAJA, or SYCL in C++, Julia users will have easy access to vendor-neutral CPU/GPU computing writing a single 100% portable high-level source code, but in a language like Julia designed for science. 
 
 JACC.jl programming model provides:
