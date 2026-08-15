@@ -105,7 +105,7 @@ function _parallel_for(indexer::TI, f, spec::LaunchSpec{oneAPIBackend}, (m, n),
     end
 
     if spec.blocks == 0
-        spec.blocks = (cld(M, spec.threads[1]), cld(N, spec.threads[2]))
+        spec.blocks = (cld(m, spec.threads[1]), cld(n, spec.threads[2]))
     end
     kernel(
         indexer, (M, N), f, x...; items = spec.threads, groups = spec.blocks,
