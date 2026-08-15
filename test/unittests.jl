@@ -5,6 +5,28 @@ function rand_jacc(dims; type::Type{T} = FloatType) where {T}
     return JACC.to_device(round.(rand(T, dims) * 100))
 end
 
+"""
+    @skipped_testset name reason
+
+Register `name` as a visibly skipped testset, for the `else` branch of a
+backend gate. Excluding a testset at the source level leaves no trace in the
+report, so a green run reads as coverage it does not have.
+
+The reason goes in the testset name because that is the only part ReTest
+prints at default verbosity — a nested testset shows only under `verbose = 9`,
+and `@test_skip` never evaluates its argument. The `@test_skip` itself supplies
+the Broken count, so the skip is visible to a machine as well as a reader.
+"""
+macro skipped_testset(name, reason)
+    label = Expr(
+        :string, "$(name) (skipped on ", :(JACC.backend), ": $(reason))")
+    return quote
+        @testset $label begin
+            @test_skip $reason
+        end
+    end
+end
+
 @testset "array" begin
     # zeros
     N = 10
@@ -700,6 +722,13 @@ end
     end
 end
 
+# Registered at top level rather than in the `else` above: ReTest prints only
+# top-level testset names, so a skip nested inside "Add-ND" contributes neither
+# a name nor a Broken count to the summary.
+if JACC.backend == "metal"
+    @skipped_testset "Add-ND 7-D" "fails on the M1 runner, passes on M3"
+end
+
 @testset "do" begin
     L = 10
     M = 10
@@ -912,6 +941,8 @@ if JACC.backend != "metal"
         res = JACC.to_host(ret)[]
         @test res ≈ 32.0
     end
+else
+    @skipped_testset "StepRange" "no recorded reason"
 end
 
 @testset "CG" begin
@@ -1197,11 +1228,7 @@ if JACC.backend != "metal"
         @test cond <= 1e-14
     end
 else
-    # A source-level exclusion leaves no trace in the report, so a green run on
-    # these backends reads as Multi coverage it does not have (JACC.jl#381).
-    @testset "Multi (not run on $(JACC.backend), see JACC.jl#381)" begin
-        @test_skip "JACC.Multi on $(JACC.backend)"
-    end
+    @skipped_testset "Multi" "see JACC.jl#381"
 end
 
 if JACC.backend != "metal" && JACC.backend != "amdgpu"
@@ -1264,9 +1291,7 @@ if JACC.backend != "metal" && JACC.backend != "amdgpu"
         @test cond[1, 1] <= 1e-14
     end
 else
-    @testset "CG Async (not run on $(JACC.backend), see JACC.jl#381)" begin
-        @test_skip "JACC.Multi async CG on $(JACC.backend)"
-    end
+    @skipped_testset "CG Async" "see JACC.jl#381"
 end
 
 if JACC.backend != "oneapi"
@@ -1288,6 +1313,8 @@ if JACC.backend != "oneapi"
         x_host = JACC.to_host(x)
         @test all(0 .<= x_host .<= 1)
     end
+else
+    @skipped_testset "rand-Float32" "no custom RNG"
 end
 
 if JACC.backend != "metal" && JACC.backend != "oneapi"
@@ -1309,6 +1336,10 @@ if JACC.backend != "metal" && JACC.backend != "oneapi"
         x_host = JACC.to_host(x)
         @test all(0 .<= x_host .<= 1)
     end
+elseif JACC.backend == "metal"
+    @skipped_testset "rand-Float64" "no Float64 on Metal"
+else
+    @skipped_testset "rand-Float64" "no custom RNG"
 end
 
 # Regression tests for 2D `parallel_for`/`parallel_reduce` on NON-SQUARE arrays.
