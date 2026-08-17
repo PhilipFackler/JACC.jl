@@ -1056,7 +1056,7 @@ end
     @test f2≈JACC.to_host(df2) rtol=1e-1
 end
 
-if JACC.backend != "amdgpu" && JACC.backend != "metal"
+if JACC.backend != "metal"
     @testset "Multi" begin
         # Unidimensional arrays
         SIZE = 10
@@ -1160,9 +1160,15 @@ if JACC.backend != "amdgpu" && JACC.backend != "metal"
         end
         @test cond <= 1e-14
     end
+else
+    # A source-level exclusion leaves no trace in the report, so a green run on
+    # these backends reads as Multi coverage it does not have (JACC.jl#381).
+    @testset "Multi (not run on $(JACC.backend), see JACC.jl#381)" begin
+        @test_skip "JACC.Multi on $(JACC.backend)"
+    end
 end
 
-if JACC.backend != "amdgpu" && JACC.backend != "metal"
+if JACC.backend != "metal"
     @testset "CG Async" begin
         function matvecmul(i, a1, a2, a3, x, y, SIZE)
             if i == 1
@@ -1222,6 +1228,10 @@ if JACC.backend != "amdgpu" && JACC.backend != "metal"
             copyto!(p, r_aux)
         end
         @test cond[1, 1] <= 1e-14
+    end
+else
+    @testset "CG Async (not run on $(JACC.backend), see JACC.jl#381)" begin
+        @test_skip "JACC.Multi async CG on $(JACC.backend)"
     end
 end
 
