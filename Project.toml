@@ -2,7 +2,7 @@ name = "JACC"
 uuid = "0979c8fe-16a4-4796-9b82-89a9f10403ea"
 version = "1.5.1"
 authors = [
-    "pedrovalerolara <valerolarap@ornl.gov>", 
+    "pedrovalerolara <valerolarap@ornl.gov>",
     "williamfgc <williamfgc@yahoo.com>",
     "PhilipFackler <facklerpw@ornl.gov>"
 ]
@@ -34,4 +34,3 @@ Pkg = "1.11"
 Polyester = "0.7.19"
 Preferences = "1.4"
 julia = "1.11"
-oneAPI = "2.8"

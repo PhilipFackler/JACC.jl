@@ -1142,7 +1142,7 @@ if JACC.backend != "metal"
         x1_expected = x1
         seq_axpy(SIZE, alpha, x1_expected, y1)
         @test JACC.to_host(dx1)≈x1_expected rtol=1e-1
-        res = JACC.Multi.parallel_reduce(SIZE, dot, dx1, dy1)
+        res = JACC.Multi.@parallel_reduce range=SIZE dot(dx1, dy1)
         @test res≈seq_dot(SIZE, x1_expected, y1) rtol=1e-1
 
         # Multidimensional arrays
@@ -1269,8 +1269,7 @@ if JACC.backend != "metal"
         # HPCG Algorithm
         while cond >= 1e-14
             JACC.Multi.copy!(jr_old, jr)
-            JACC.Multi.parallel_for(
-                SIZE, matvecmul, gja1, gja2, gja3, gjp, gjs, ndev)
+            JACC.Multi.@parallel_for range=SIZE matvecmul(gja1, gja2, gja3, gjp, gjs, ndev)
             JACC.Multi.sync_ghost_elems!(gjs)
             JACC.Multi.copy!(js, gjs) #js = gjs
             alpha0 = JACC.Multi.parallel_reduce(SIZE, dot, jr, jr)

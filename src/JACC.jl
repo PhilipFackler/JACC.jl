@@ -19,21 +19,19 @@ const AnyRange = Union{AllDims, DimRange}
 
 include("array.jl")
 include("blas.jl")
-include("multi.jl")
-include("async.jl")
 include("experimental/experimental.jl")
 
-export array_type, array
-export default_float
 export @atomic
 export parallel_for, parallel_reduce
-export shared
-export LaunchSpec
-export synchronize
+export launch_spec
+export synchronize, sync_workgroup
 
+public array_type, array, default_float
 public zeros, ones, fill
 public to_device, to_host, transfer!
-public @parallel_for, @parallel_reduce
+public @parallel_for, @parallel_reduce, reducer, set_init!
+public create_stream
+public shared
 
 ilog2(n::T) where {T <: Integer} = sizeof(T) * 8 - 1 - leading_zeros(n)
 
@@ -278,8 +276,11 @@ end
     return parallel_reduce(spec, +, a; kw...)
 end
 
-include("threads/threads.jl")
-
 include("macro.jl")
+
+include("multi.jl")
+include("async.jl")
+
+include("threads/threads.jl")
 
 end # module JACC

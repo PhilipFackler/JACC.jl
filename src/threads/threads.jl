@@ -6,6 +6,7 @@ import JACC
 import JACC: LaunchSpec
 
 struct ThreadsBackend end
+const ThreadsTag = Type{ThreadsBackend}
 
 @inline JACC.get_backend(::Val{:threads}) = ThreadsBackend()
 @inline JACC.get_backend_type(::Val{:threads}) = ThreadsBackend
@@ -29,13 +30,13 @@ include("multi.jl")
 include("async.jl")
 include("experimental/experimental.jl")
 
-JACC.synchronize(::Type{ThreadsBackend}) = nothing
+JACC.synchronize(::ThreadsTag) = nothing
 
-JACC.default_stream(::Type{ThreadsBackend}) = nothing
+JACC.default_stream(::ThreadsTag) = nothing
 
-JACC.create_stream(::Type{ThreadsBackend}) = nothing
+JACC.create_stream(::ThreadsTag) = nothing
 
-@inline function JACC.parallel_for(f, ::Type{ThreadsBackend}, N::Integer, x...; kw...)
+@inline function JACC.parallel_for(f, ::ThreadsTag, N::Integer, x...; kw...)
     @maybe_threaded for i in 1:N
         f(i, x...)
     end
@@ -53,7 +54,7 @@ end
 end
 
 @inline function JACC.parallel_for(
-        f, ::Type{ThreadsBackend}, (M, N)::NTuple{2, Integer}, x...; kw...)
+        f, ::ThreadsTag, (M, N)::NTuple{2, Integer}, x...; kw...)
     @maybe_threaded for ij in CartesianIndices((M, N))
         f(ij[1], ij[2], x...)
     end
@@ -67,7 +68,7 @@ end
 end
 
 @inline function JACC.parallel_for(
-        f, ::Type{ThreadsBackend}, (L, M, N)::NTuple{3, Integer}, x...; kw...)
+        f, ::ThreadsTag, (L, M, N)::NTuple{3, Integer}, x...; kw...)
     @maybe_threaded for ijk in CartesianIndices((L, M, N))
         f(ijk[1], ijk[2], ijk[3], x...)
     end
@@ -85,7 +86,7 @@ mutable struct ThreadsReduceWorkspace{T} <: JACC.ReduceWorkspace
     ret::Vector{T}
 end
 
-@inline function JACC.reduce_workspace(::Type{ThreadsBackend}, init::T) where {T}
+@inline function JACC.reduce_workspace(::ThreadsTag, init::T) where {T}
     if Threads.nthreads() == 1
         ThreadsReduceWorkspace{T}(T[], [init])
     else
@@ -138,7 +139,7 @@ end
 end
 
 @inline function JACC.parallel_reduce(
-        f, ::Type{ThreadsBackend}, N::Integer, x...; op, init, kw...)
+        f, ::ThreadsTag, N::Integer, x...; op, init, kw...)
     reducer = JACC.reducer(
         backend = ThreadsBackend, range = N, op = op, init = init)
     reducer(f, x...)
@@ -191,7 +192,7 @@ end
     return nothing
 end
 
-@inline function JACC.parallel_reduce(f, ::Type{ThreadsBackend},
+@inline function JACC.parallel_reduce(f, ::ThreadsTag,
         (M, N)::NTuple{2, Integer}, x...; op, init, kw...)
     dims = (M, N)
     reducer = JACC.reducer(
@@ -201,7 +202,7 @@ end
 end
 
 @inline function JACC.parallel_reduce(
-        f, ::Type{ThreadsBackend}, dims::NTuple{N, Integer},
+        f, ::ThreadsTag, dims::NTuple{N, Integer},
         x...; op, init, kw...)::typeof(init) where {N}
     ids = CartesianIndices(dims)
     return JACC.parallel_reduce(
@@ -240,13 +241,13 @@ end # module Detail
 
 const _BARRIER = Ref(Detail.SimpleBarrier(0))
 
-JACC.sync_workgroup(::Type{ThreadsBackend}) = wait(_BARRIER[])
+JACC.sync_workgroup(::ThreadsTag) = wait(_BARRIER[])
 
-JACC.array_type(::Type{ThreadsBackend}) = Base.Array
+JACC.array_type(::ThreadsTag) = Base.Array
 
-JACC.array(::Type{ThreadsBackend}, x::AbstractArray) = x
+JACC.array(::ThreadsTag, x::AbstractArray) = x
 
-JACC.shared(::Type{ThreadsBackend}, x::AbstractArray) = x
+JACC.shared(::ThreadsTag, x::AbstractArray) = x
 
 function __init__()
     _BARRIER[] = Detail.SimpleBarrier(Threads.nthreads())

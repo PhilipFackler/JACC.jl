@@ -1,11 +1,21 @@
 module Multi
 
-import Base: Callable
-using JACC
+export ndev, device_id, synchronize
+export AbstractMultiArray
+export part_length, multi_array_type
+export ghost_shift, sync_ghost_elems!
+
+public parallel_for, parallel_reduce
+public @parallel_for, @parallel_reduce
+
+import JACC
+import JACC._construct_call
 
 function ndev()
     return ndev(JACC.default_backend_type())
 end
+
+synchronize() = synchronize(JACC.default_backend())
 
 function part_length(x)
     return part_length(JACC.default_backend_type(), x)
@@ -14,6 +24,8 @@ end
 function device_id(x)
     return device_id(JACC.default_backend_type(), x)
 end
+
+abstract type AbstractMultiArray end
 
 function multi_array_type()
     return multi_array_type(JACC.default_backend_type())
@@ -35,27 +47,67 @@ function copy!(dest, src)
     return copy!(JACC.default_backend_type(), dest, src)
 end
 
-function parallel_for(N::Integer, f::Callable, x...)
-    return parallel_for(JACC.default_backend_type(), N, f, x...)
+@inline function parallel_for(f, dims::JACC.IDims, x...; kw...)
+    parallel_for(f, JACC.default_backend_type(), dims, x...; kw...)
 end
 
-@inline function parallel_for(f::Callable, N::Integer, x...)
-    return parallel_for(N, f, x...)
+@inline function parallel_for(dims::JACC.IDims, f, x...; kw...)
+    parallel_for(f, dims, x...; kw...)
 end
 
-function parallel_for((M, N)::NTuple{2, Integer}, f::Callable, x...)
-    return parallel_for(JACC.default_backend_type(), (M, N), f, x...)
+@inline function parallel_for(f, range::AbstractRange, x...)
+    # TODO
 end
 
-@inline function parallel_for(f::Callable, (M, N)::NTuple{2, Integer}, x...)
-    return parallel_for((M, N), f, x...)
+@inline function parallel_for(f, range::NTuple{N, AbstractRange}, x...) where {N}
+    # TODO
 end
 
-function parallel_reduce(N::Integer, f::Callable, x...)
-    return parallel_reduce(JACC.default_backend_type(), N, f, x...)
+@inline function parallel_for(; range::TR, f, args::Tuple, kw...) where {TR}
+    parallel_for(f, range, args...; kw...)
 end
 
-function parallel_reduce((M, N)::NTuple{2, Integer}, f::Callable, x...)
-    return parallel_reduce(JACC.default_backend_type(), (M, N), f, x...)
+macro parallel_for(args...)
+    esc(_construct_call(JACC.Multi.parallel_for, [:range, :sync], args...))
 end
+
+@inline function parallel_reduce(f, dims::JACC.IDims, x...;
+        type = nothing, op = +, init = nothing)
+    _init = JACC._resolve_init_type(op, type, init)
+    return parallel_reduce(
+        f, JACC.default_backend_type(), dims, x...; op = op, init = _init)
+end
+
+@inline function parallel_reduce(dims::JACC.IDims, f, x...)
+    return parallel_reduce(f, dims, x...)
+end
+
+@inline function parallel_reduce(f, range::AbstractRange, x...; kw...)
+    # TODO
+end
+
+@inline function parallel_reduce(f, range::NTuple{N, AbstractRange}, x...; kw...) where {N}
+    # TODO
+end
+
+@inline function parallel_reduce(; range::TR, f, args::Tuple, type = nothing,
+        op = +, init = nothing, kw...) where {TR}
+    return parallel_reduce(f, range, args...; type = type, op = op, init = init)
+end
+
+@inline function parallel_reduce(op, a::JACC.Multi.AbstractMultiArray;
+        init = JACC.default_init(eltype(a), op))
+    return parallel_reduce(
+        JACC.elem_access, JACC.array_size(a), a; op = op, init = init)
+end
+
+@inline function parallel_reduce(a::JACC.Multi.AbstractMultiArray; kw...)
+    return parallel_reduce(+, a, kw...)
+end
+
+macro parallel_reduce(args...)
+    esc(_construct_call(JACC.Multi.parallel_reduce,
+        [:range, :type, :op, :init], args...))
+end
+
 end # module Multi

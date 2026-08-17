@@ -11,8 +11,8 @@ function ones(::Type{T}, id, dims...) where {T}
     return ones(JACC.default_backend_type(), T, id, dims...)
 end
 
-zeros(id::Integer, dims::Integer...) = zeros(default_float(), id, dims...)
-ones(id::Integer, dims::Integer...) = ones(default_float(), id, dims...)
+zeros(id::Integer, dims::Integer...) = zeros(JACC.default_float(), id, dims...)
+ones(id::Integer, dims::Integer...) = ones(JACC.default_float(), id, dims...)
 fill(id, value, dims...) = fill(JACC.default_backend_type(), id, value, dims...)
 
 function ndev()

@@ -1,6 +1,7 @@
 module oneAPIExt
 
 using JACC, oneAPI, oneAPI.oneL0
+using JACC: LaunchSpec
 
 JACC.get_backend(::Val{:oneapi}) = oneAPIBackend()
 JACC.get_backend_type(::Val{:oneapi}) = oneAPIBackend

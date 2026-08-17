@@ -1,12 +1,19 @@
 module Multi
 
-import Base: Callable
 using JACC, oneAPI
 using oneAPIExt: oneAPITag
 
 @inline ndevices() = length(oneAPI.devices())
 
 JACC.Multi.ndev(::oneAPITag) = ndevices()
+
+@inline function _synchronize()
+    for i in 1:ndevices()
+        oneAPI.device!(i)
+        oneAPI.synchronize()
+    end
+end
+JACC.Multi.synchronize(::oneAPIBackend) = _synchronize()
 
 struct ArrayPart{T, N}
     a::oneAPI.oneDeviceArray{T, N, oneAPI.AS.CrossWorkgroup}
@@ -27,10 +34,10 @@ end
 
 @inline JACC.Multi.device_id(::oneAPITag, p::ArrayPart) = p.dev_id
 
-struct MultiArray{T, N, NG}
+struct MultiArray{T, N, NG} <: JACC.Multi.AbstractMultiArray
     a1::Vector{ArrayPart{T, N}}
     a2::Vector{oneArray{T, N}}
-    orig_size::Any
+    orig_size::NTuple{N, Int}
 end
 
 JACC.to_host(x::MultiArray) = convert(Base.Array, x)
@@ -38,16 +45,16 @@ JACC.to_host(x::MultiArray) = convert(Base.Array, x)
 @inline ghost_dims(x::MultiArray{T, N, NG}) where {T, N, NG} = NG
 @inline JACC.Multi.part_length(::oneAPITag, x::MultiArray) = size(x.a2[1])[end] - ghost_dims(x)
 
-@inline process_param(x, dev_id) = x
-@inline process_param(x::MultiArray, dev_id) = x.a1[dev_id]
+@inline _process_param(x, dev_id) = x
+@inline _process_param(x::MultiArray, dev_id) = x.a1[dev_id]
 
 JACC.Multi.multi_array_type(::oneAPITag) = MultiArray
 
 function Base.convert(::Type{Base.Array}, x::MultiArray{T, 1, NG}) where {T, NG}
     ndev = ndevices()
-    ret = Base.Array{T, 1}(undef, x.orig_size)
-    partlen = cld(x.orig_size, ndev)
-    lastlen = x.orig_size - ((ndev - 1) * partlen)
+    ret = Base.Array{T, 1}(undef, x.orig_size[1])
+    partlen = cld(x.orig_size[1], ndev)
+    lastlen = x.orig_size[1] - ((ndev - 1) * partlen)
     for i in 1:ndev
         oneAPI.device!(i)
         if i == 1
@@ -106,7 +113,7 @@ function Base.convert(::Type{Base.Array}, x::MultiArray{T, 2, NG}) where {T, NG}
     return ret
 end
 
-function make_multi_array(x::Base.Vector{T}) where {T}
+function _make_multi_array(x::Base.Vector{T}) where {T}
     ndev = ndevices()
     total_length = length(x)
     partlen = cld(total_length, ndev)
@@ -124,10 +131,10 @@ function make_multi_array(x::Base.Vector{T}) where {T}
     end
 
     oneAPI.device!(1)
-    return MultiArray{T, 1, 0}(devparts, parts, total_length)
+    return MultiArray{T, 1, 0}(devparts, parts, (total_length,))
 end
 
-function make_multi_array(x::Base.Vector{T}, ghost_dims) where {T}
+function _make_multi_array(x::Base.Vector{T}, ghost_dims) where {T}
     ndev = ndevices()
     total_length = length(x)
     partlen = cld(total_length, ndev)
@@ -151,7 +158,7 @@ function make_multi_array(x::Base.Vector{T}, ghost_dims) where {T}
     return MultiArray{T, 1, ng}(devparts, parts, total_length)
 end
 
-function make_multi_array(x::Base.Matrix{T}) where {T}
+function _make_multi_array(x::Base.Matrix{T}) where {T}
     ndev = ndevices()
     total_length = size(x, 2)
     partlen = cld(total_length, ndev)
@@ -172,7 +179,7 @@ function make_multi_array(x::Base.Matrix{T}) where {T}
     return MultiArray{T, 2, 0}(devparts, parts, size(x))
 end
 
-function make_multi_array(x::Base.Matrix{T}, ghost_dims) where {T}
+function _make_multi_array(x::Base.Matrix{T}, ghost_dims) where {T}
     ndev = ndevices()
     total_length = size(x, 2)
     partlen = cld(total_length, ndev)
@@ -198,9 +205,9 @@ end
 
 function JACC.Multi.array(::oneAPITag, x::Base.Array; ghost_dims)
     if ghost_dims == 0 || ndevices() == 1
-        return make_multi_array(x)
+        return _make_multi_array(x)
     else
-        return make_multi_array(x, ghost_dims)
+        return _make_multi_array(x, ghost_dims)
     end
 end
 
@@ -259,10 +266,7 @@ function JACC.Multi.sync_ghost_elems!(::oneAPITag, arr::MultiArray{
         @oneapi items=32 groups=1 _multi_swap_ghost_rl(arr.a1[i - 1], ghost_rl)
     end
 
-    for i in 1:ndev
-        oneAPI.device!(i)
-        oneAPI.synchronize()
-    end
+    _synchronize()
 
     oneAPI.device!(1)
 end
@@ -304,10 +308,7 @@ function JACC.Multi.sync_ghost_elems!(::oneAPITag, arr::MultiArray{
             arr.a1[i - 1], ghost_rl)
     end
 
-    for i in 1:ndev
-        oneAPI.device!(i)
-        oneAPI.synchronize()
-    end
+    _synchronize()
 
     oneAPI.device!(1)
 end
@@ -348,10 +349,7 @@ function JACC.Multi.copy!(::oneAPITag, x::MultiArray, y::MultiArray)
             end
         end
 
-        for i in 1:ndev
-            oneAPI.device!(i)
-            oneAPI.synchronize()
-        end
+        _synchronize()
 
     elseif ndims(x.a2[1]) == 2
 
@@ -370,16 +368,14 @@ function JACC.Multi.copy!(::oneAPITag, x::MultiArray, y::MultiArray)
             @oneapi items=threads groups=blocks _multi_copy_2d(x.a1[i], y.a1[i])
         end
 
-        for i in 1:ndev
-            oneAPI.device!(i)
-            oneAPI.synchronize()
-        end
+        _synchronize()
     end
 
     oneAPI.device!(1)
 end
 
-function JACC.Multi.parallel_for(::oneAPITag, N::Integer, f::Callable, x...)
+function JACC.Multi.parallel_for(
+        f, ::oneAPITag, N::Integer, x...; sync = true)
     ndev = ndevices()
     N_part = cld(N, ndev)
     N_last = N - ((ndev - 1) * N_part)
@@ -390,24 +386,23 @@ function JACC.Multi.parallel_for(::oneAPITag, N::Integer, f::Callable, x...)
         if i == ndev
             JACC.parallel_for(
                 JACC.LaunchSpec{oneAPIBackend}(; sync = false), N_last,
-                f, process_param.((x), dev_id)...)
+                f, _process_param.((x), dev_id)...)
         else
             JACC.parallel_for(
                 JACC.LaunchSpec{oneAPIBackend}(; sync = false), N_part,
-                f, process_param.((x), dev_id)...)
+                f, _process_param.((x), dev_id)...)
         end
     end
 
-    for i in 1:ndev
-        oneAPI.device!(i)
-        oneAPI.synchronize()
+    if sync
+        _synchronize()
     end
 
     oneAPI.device!(1)
 end
 
 function JACC.Multi.parallel_for(
-        ::oneAPITag, (M, N)::NTuple{2, Integer}, f::Callable, x...)
+        f, ::oneAPITag, (M, N)::NTuple{2, Integer}, x...; sync = true)
     ndev = ndevices()
     N_part = ceil(Int, N / ndev)
     N_last = N - ((ndev - 1) * N_part)
@@ -417,23 +412,22 @@ function JACC.Multi.parallel_for(
         dev_id = i
         if i == ndev
             JACC.parallel_for(JACC.LaunchSpec{oneAPIBackend}(; sync = false),
-                (M, N_last), f, process_param.((x), dev_id)...)
+                (M, N_last), f, _process_param.((x), dev_id)...)
         else
             JACC.parallel_for(JACC.LaunchSpec{oneAPIBackend}(; sync = false),
-                (M, N_part), f, process_param.((x), dev_id)...)
+                (M, N_part), f, _process_param.((x), dev_id)...)
         end
     end
 
-    for i in 1:ndev
-        oneAPI.device!(i)
-        oneAPI.synchronize()
+    if sync
+        _synchronize()
     end
 
     oneAPI.device!(1)
 end
 
 function JACC.Multi.parallel_reduce(
-        ::oneAPITag, N::Integer, f::Callable, x...)
+        f, ::oneAPITag, N::Integer, x...; op, init)
     ndev = length(oneAPI.devices())
     rret = Vector{Any}(undef, ndev)
     N_part = cld(N, ndev)
@@ -442,21 +436,23 @@ function JACC.Multi.parallel_reduce(
     for i in 1:ndev
         oneAPI.device!(i)
         dev_id = i
+        
         part_range = N_part
-        if i == ndev
+        if dev_id == ndev
             part_range = N_last
         end
-        reducer = JACC.reducer(;
-            backend = oneAPIBackend, type = JACC.default_float(),
-            range = part_range, op = +, sync = false)
-        reducer(f, process_param.((x), dev_id)...)
+
+        workspace = JACC.reduce_workspace(oneAPIBackend, init)
+        reducer = JACC.ParallelReduce{oneAPIBackend, typeof(init), typeof(op),
+            typeof(N), typeof(workspace)}(;
+            range = part_range, op = op, init = init, workspace = workspace, sync = false
+        )
+
+        reducer(f, _process_param.((x), dev_id)...)
         rret[i] = reducer.workspace.ret
     end
 
-    for i in 1:ndev
-        oneAPI.device!(i)
-        oneAPI.synchronize()
-    end
+    _synchronize()
 
     final_rret = 0.0
     for i in 1:ndev
@@ -470,7 +466,7 @@ function JACC.Multi.parallel_reduce(
 end
 
 function JACC.Multi.parallel_reduce(
-        ::oneAPITag, (M, N)::NTuple{2, Integer}, f::Callable, x...)
+        f, ::oneAPITag, (M, N)::NTuple{2, Integer}, x...; op, init)
     ndev = ndevices()
     rret = Vector{Any}(undef, ndev)
     N_part = cld(N, ndev)
@@ -483,17 +479,17 @@ function JACC.Multi.parallel_reduce(
         if i == ndev
             part_range = N_last
         end
-        reducer = JACC.reducer(;
-            backend = oneAPIBackend, type = JACC.default_float(),
-            range = (M, part_range), op = +, sync = false)
-        reducer(f, process_param.((x), dev_id)...)
+
+        workspace = JACC.reduce_workspace(oneAPIBackend, init)
+        reducer = JACC.ParallelReduce{oneAPIBackend, typeof(init), typeof(op),
+            typeof((M, N)), typeof(workspace)}(;
+            range = (M, part_range), op = op, init = init, workspace = workspace,
+            sync = false)
+        reducer(f, _process_param.((x), dev_id)...)
         rret[i] = reducer.workspace.ret
     end
 
-    for i in 1:ndev
-        oneAPI.device!(i)
-        oneAPI.synchronize()
-    end
+    _synchronize()
 
     final_rret = 0.0
     for i in 1:ndev
