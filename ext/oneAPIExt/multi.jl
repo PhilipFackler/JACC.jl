@@ -8,7 +8,7 @@ using JACC, oneAPI
 JACC.Multi.ndev(::oneAPIBackend) = ndevices()
 
 struct ArrayPart{T, N}
-    a::oneAPI.oneDeviceArray{T, N, oneAPI.AS.Global}
+    a::oneAPI.oneDeviceArray{T, N, oneAPI.AS.CrossWorkgroup}
     dev_id::Int
     ndev::Int
     ghost_dims::Int
