@@ -32,24 +32,29 @@ end
 
 @inline _kernel_args(args...) = rocconvert.((args))
 
-@inline function _make_kernel(kernel_function, kargs)
+@inline function _make_kernel(kernel_function, kargs, ::Nothing)
     p_tt = Tuple{Core.Typeof.(kargs)...}
-    p_kernel = AMDGPU.hipfunction(kernel_function, p_tt)
+    return AMDGPU.hipfunction(kernel_function, p_tt)
 end
 
-@inline function _kernel_maxshmem(kernel_function, kargs)
-    p_kernel = _make_kernel(kernel_function, kargs)
+@inline function _make_kernel(kernel_function, kargs, kname::AbstractString)
+    p_tt = Tuple{Core.Typeof.(kargs)...}
+    return AMDGPU.hipfunction(kernel_function, p_tt; name = kname)
+end
+
+@inline function _kernel_maxshmem(kernel_function, kargs, kname)
+    p_kernel = _make_kernel(kernel_function, kargs, kname)
     return (p_kernel, _max_shmem_size(p_kernel))
 end
 
-@inline function _kernel_maxthreads(kernel_function, kargs)
-    p_kernel = _make_kernel(kernel_function, kargs)
+@inline function _kernel_maxthreads(kernel_function, kargs, kname)
+    p_kernel = _make_kernel(kernel_function, kargs, kname)
     return (p_kernel, AMDGPU.launch_configuration(p_kernel).groupsize)
 end
 
-function JACC.parallel_for(f, ::AMDGPUBackend, N::Integer, x...)
+function JACC.parallel_for(f, ::AMDGPUBackend, N::Integer, x...; name = nothing)
     kargs = _kernel_args(N, f, x...)
-    kernel, shmem_size = _kernel_maxshmem(_parallel_for_amdgpu, kargs)
+    kernel, shmem_size = _kernel_maxshmem(_parallel_for_amdgpu, kargs, name)
     config = AMDGPU.launch_configuration(kernel; shmem = shmem_size)
     threads = min(N, config.groupsize)
     blocks = cld(N, threads)
@@ -58,9 +63,9 @@ function JACC.parallel_for(f, ::AMDGPUBackend, N::Integer, x...)
 end
 
 function JACC.parallel_for(
-        f, spec::LaunchSpec{AMDGPUBackend}, N::Integer, x...)
+        f, spec::LaunchSpec{AMDGPUBackend}, N::Integer, x...; name = nothing)
     kargs = _kernel_args(N, f, x...)
-    kernel, shmem_size = _kernel_maxshmem(_parallel_for_amdgpu, kargs)
+    kernel, shmem_size = _kernel_maxshmem(_parallel_for_amdgpu, kargs, name)
     if spec.shmem_size < 0
         spec.shmem_size = shmem_size
     end
@@ -121,9 +126,10 @@ end
 end
 
 # Generic launcher used for the swapped-axes fallback (uncoalesced, last resort).
-function _parallel_for(indexer::TI, f, (m, n), (M, N), x...) where {TI}
+function parallel_for(
+        indexer::TI, f, (m, N), (M, N), x...; name = nothing) where {TI}
     kargs = _kernel_args(indexer, (M, N), f, x...)
-    kernel, shmem_size = _kernel_maxshmem(_parallel_for_amdgpu_MN, kargs)
+    kernel, shmem_size = _kernel_maxshmem(_parallel_for_amdgpu_MN, kargs, name)
     config = AMDGPU.launch_configuration(kernel; shmem = shmem_size)
     maxThreadsX = sqrt(config.groupsize)
     y_thr = clamp(floor(Int, (n / m) * maxThreadsX), 1, config.groupsize)
@@ -135,7 +141,7 @@ function _parallel_for(indexer::TI, f, (m, n), (M, N), x...) where {TI}
 end
 
 function JACC.parallel_for(
-        f, ::AMDGPUBackend, (M, N)::NTuple{2, Integer}, x...)
+        f, ::AMDGPUBackend, (M, N)::NTuple{2, Integer}, x...; name = nothing)
     dev = AMDGPU.device()
     props = AMDGPU.HIP.properties(dev)
     maxBlocks = (x = props.maxGridSize[1], y = props.maxGridSize[2])
@@ -144,11 +150,11 @@ function JACC.parallel_for(
     # Swapping moves the large extent onto the x-axis (which has a far larger
     # limit) but sacrifices memory coalescing, so it must be a last resort.
     kargs = _kernel_args(BlockIndexerBasic(), (M, N), f, x...)
-    kernel, shmem_size = _kernel_maxshmem(_parallel_for_amdgpu_MN, kargs)
+    kernel, shmem_size = _kernel_maxshmem(_parallel_for_amdgpu_MN, kargs, name)
     config = AMDGPU.launch_configuration(kernel; shmem = shmem_size)
     x_thr, y_thr = _block_shape_2d(config.groupsize, M, N)
     if cld(N, y_thr) > maxBlocks.y && maxBlocks.x >= maxBlocks.y
-        _parallel_for(BlockIndexerSwapped(), f, (N, M), (M, N), x...)
+        _parallel_for(BlockIndexerSwapped(), f, (N, M), (M, N), x...; name = name)
     else
         blocks = (cld(M, x_thr), cld(N, y_thr))
         kernel(kargs...; groupsize = (x_thr, y_thr), gridsize = blocks,
@@ -158,9 +164,9 @@ function JACC.parallel_for(
 end
 
 function _parallel_for(indexer::TI, f, spec::LaunchSpec{AMDGPUBackend}, (m, n),
-        (M, N), x...) where {TI}
+        (M, N), x...; name = nothing) where {TI}
     kargs = _kernel_args(indexer, (M, N), f, x...)
-    kernel, shmem_size = _kernel_maxshmem(_parallel_for_amdgpu_MN, kargs)
+    kernel, shmem_size = _kernel_maxshmem(_parallel_for_amdgpu_MN, kargs, name)
 
     if spec.shmem_size < 0
         spec.shmem_size = shmem_size
@@ -185,8 +191,8 @@ function _parallel_for(indexer::TI, f, spec::LaunchSpec{AMDGPUBackend}, (m, n),
     end
 end
 
-function JACC.parallel_for(
-        f, spec::LaunchSpec{AMDGPUBackend}, (M, N)::NTuple{2, Integer}, x...)
+function JACC.parallel_for(f, spec::LaunchSpec{AMDGPUBackend},
+        (M, N)::NTuple{2, Integer}, x...; name = nothing)
     dev = AMDGPU.device()
     props = AMDGPU.HIP.properties(dev)
     maxBlocks = (x = props.maxGridSize[1], y = props.maxGridSize[2])
@@ -195,7 +201,7 @@ function JACC.parallel_for(
     # the basic grid would overflow the y-dimension limit.
     if spec.threads == 0
         kargs = _kernel_args(BlockIndexerBasic(), (M, N), f, x...)
-        kernel, shmem_size = _kernel_maxshmem(_parallel_for_amdgpu_MN, kargs)
+        kernel, shmem_size = _kernel_maxshmem(_parallel_for_amdgpu_MN, kargs, name)
         if spec.shmem_size < 0
             spec.shmem_size = shmem_size
         end
@@ -217,17 +223,17 @@ function JACC.parallel_for(
     else
         y_thr = spec.threads[2]
         if cld(N, y_thr) > maxBlocks.y && maxBlocks.x >= maxBlocks.y
-            _parallel_for(BlockIndexerSwapped(), f, spec, (N, M), (M, N), x...)
+            _parallel_for(BlockIndexerSwapped(), f, spec, (N, M), (M, N), x...; name = name)
         else
-            _parallel_for(BlockIndexerBasic(), f, spec, (M, N), (M, N), x...)
+            _parallel_for(BlockIndexerBasic(), f, spec, (M, N), (M, N), x...; name = name)
         end
     end
 end
 
 function JACC.parallel_for(
-        f, ::AMDGPUBackend, (L, M, N)::NTuple{3, Integer}, x...)
+        f, ::AMDGPUBackend, (L, M, N)::NTuple{3, Integer}, x...; name = nothing)
     kargs = _kernel_args((L, M, N), f, x...)
-    kernel, shmem_size = _kernel_maxshmem(_parallel_for_amdgpu_LMN, kargs)
+    kernel, shmem_size = _kernel_maxshmem(_parallel_for_amdgpu_LMN, kargs, name)
     numThreads = 32
     Lthreads = min(L, numThreads)
     Mthreads = min(M, numThreads)
@@ -241,9 +247,9 @@ function JACC.parallel_for(
 end
 
 function JACC.parallel_for(f, spec::LaunchSpec{AMDGPUBackend},
-        (L, M, N)::NTuple{3, Integer}, x...)
+        (L, M, N)::NTuple{3, Integer}, x...; name = nothing)
     kargs = _kernel_args((L, M, N), f, x...)
-    kernel, shmem_size = _kernel_maxshmem(_parallel_for_amdgpu_LMN, kargs)
+    kernel, shmem_size = _kernel_maxshmem(_parallel_for_amdgpu_LMN, kargs, name)
     if spec.shmem_size < 0
         spec.shmem_size = shmem_size
     end
@@ -301,17 +307,24 @@ end
 
 JACC.get_result(wk::AMDGPUReduceWorkspace) = Base.Array(wk.ret)[]
 
+_make_kname(base::AbstractString, sfx::AbstractString) = base * "__" * sfx
+_make_kname(::Nothing, ::AbstractString) = nothing
+
 function JACC._parallel_reduce!(reducer::JACC.ParallelReduce{AMDGPUBackend},
-        N::Integer, f, x...)
+        N::Integer, f, x...; name = nothing)
     wk = reducer.workspace
     op = reducer.op
     init = reducer.init
 
     kargs1 = _kernel_args(N, op, wk.ret, init, f, x...)
-    kernel1, threads1 = _kernel_maxthreads(_parallel_reduce_amdgpu, kargs1)
+    kernel1,
+    threads1 = _kernel_maxthreads(_parallel_reduce_amdgpu, kargs1,
+        _make_kname(name, "block_reduce"))
 
     kargs2 = _kernel_args(1, op, wk.ret, init, wk.ret)
-    kernel2, threads2 = _kernel_maxthreads(_reduce_kernel_amdgpu, kargs2)
+    kernel2,
+    threads2 = _kernel_maxthreads(_reduce_kernel_amdgpu, kargs2,
+        _make_kname(name, "grid_reduce"))
 
     threads = min(threads1, threads2, 512)
     blocks = cld(N, threads)
@@ -334,15 +347,20 @@ function JACC._parallel_reduce!(reducer::JACC.ParallelReduce{AMDGPUBackend},
     return nothing
 end
 
-function JACC.parallel_reduce(f, ::AMDGPUBackend, N::Integer, x...; op, init)
+function JACC.parallel_reduce(f, ::AMDGPUBackend, N::Integer, x...; op, init,
+        name = nothing)
     ret_inst = AMDGPU.ROCArray{typeof(init)}(undef, 0)
 
     kargs1 = _kernel_args(N, op, ret_inst, init, f, x...)
-    kernel1, threads1 = _kernel_maxthreads(_parallel_reduce_amdgpu, kargs1)
+    kernel1,
+    threads1 = _kernel_maxthreads(_parallel_reduce_amdgpu, kargs1,
+        _make_kname(name, "block_reduce"))
 
     rret = AMDGPU.ROCArray([init])
     kargs2 = _kernel_args(1, op, ret_inst, init, rret)
-    kernel2, threads2 = _kernel_maxthreads(_reduce_kernel_amdgpu, kargs2)
+    kernel2,
+    threads2 = _kernel_maxthreads(_reduce_kernel_amdgpu, kargs2,
+        _make_kname(name, "grid_reduce"))
 
     threads = min(threads1, threads2, 512)
     blocks = cld(N, threads)
@@ -363,7 +381,7 @@ function JACC.parallel_reduce(f, ::AMDGPUBackend, N::Integer, x...; op, init)
 end
 
 function JACC._parallel_reduce!(reducer::JACC.ParallelReduce{AMDGPUBackend},
-        (M, N)::NTuple{2, Integer}, f, x...)
+        (M, N)::NTuple{2, Integer}, f, x...; name = nothing)
     init = reducer.init
     op = reducer.op
     numThreads = 16
@@ -379,12 +397,14 @@ function JACC._parallel_reduce!(reducer::JACC.ParallelReduce{AMDGPUBackend},
     _init!(wk, blocks, init)
 
     kargs1 = _kernel_args((M, N), op, wk.tmp, init, f, x...)
-    kernel1 = _make_kernel(_parallel_reduce_amdgpu_MN, kargs1)
+    kernel1 = _make_kernel(_parallel_reduce_amdgpu_MN, kargs1,
+        _make_kname(name, "block_reduce"))
     kernel1(kargs1...; groupsize = threads, gridsize = blocks,
         shmem = shmem_size, stream = reducer.stream)
 
     kargs2 = _kernel_args(blocks, op, wk.tmp, init, wk.ret)
-    kernel2 = _make_kernel(_reduce_kernel_amdgpu_MN, kargs2)
+    kernel2 = _make_kernel(_reduce_kernel_amdgpu_MN, kargs2,
+        _make_kname(name, "grid_reduce"))
     kernel2(kargs2...; groupsize = threads, gridsize = (1, 1),
         shmem = shmem_size, stream = reducer.stream)
 
@@ -396,7 +416,7 @@ function JACC._parallel_reduce!(reducer::JACC.ParallelReduce{AMDGPUBackend},
 end
 
 function JACC.parallel_reduce(f, ::AMDGPUBackend, (M, N)::NTuple{2, Integer},
-        x...; op, init)
+        x...; op, init, name = nothing)
     numThreads = 16
     Mthreads = numThreads
     Nthreads = numThreads
@@ -410,11 +430,13 @@ function JACC.parallel_reduce(f, ::AMDGPUBackend, (M, N)::NTuple{2, Integer},
     rret = AMDGPU.ROCArray([init])
 
     kargs1 = _kernel_args((M, N), op, ret, init, f, x...)
-    kernel1 = _make_kernel(_parallel_reduce_amdgpu_MN, kargs1)
+    kernel1 = _make_kernel(_parallel_reduce_amdgpu_MN, kargs1,
+        _make_kname(name, "block_reduce"))
     kernel1(kargs1...; groupsize = threads, gridsize = blocks, shmem = shmem_size)
 
     kargs2 = _kernel_args(blocks, op, ret, init, rret)
-    kernel2 = _make_kernel(_reduce_kernel_amdgpu_MN, kargs2)
+    kernel2 = _make_kernel(_reduce_kernel_amdgpu_MN, kargs2,
+        _make_kname(name, "grid_reduce"))
     kernel2(kargs2...; groupsize = threads, gridsize = (1, 1), shmem = shmem_size)
 
     AMDGPU.synchronize()
@@ -422,10 +444,10 @@ function JACC.parallel_reduce(f, ::AMDGPUBackend, (M, N)::NTuple{2, Integer},
 end
 
 @inline function JACC.parallel_reduce(f, ::AMDGPUBackend,
-        dims::NTuple{N, Integer}, x...; op, init) where {N}
+        dims::NTuple{N, Integer}, x...; op, init, kw...) where {N}
     ids = CartesianIndices(dims)
     return JACC.parallel_reduce(JACC.ReduceKernel1DND{typeof(init)}(),
-        prod(dims), ids, f, x...; op = op, init = init)
+        prod(dims), ids, f, x...; op = op, init = init, kw...)
 end
 
 # COV_EXCL_START

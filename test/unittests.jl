@@ -159,7 +159,7 @@ end
     x = JACC.to_device(round.(rand(Float32, N) * 100))
     y = JACC.to_device(round.(rand(Float32, N) * 100))
     counter = JACC.to_device(Int32[0])
-    JACC.parallel_for(N, axpy_counter!, alpha, x, y, counter)
+    JACC.parallel_for(N, axpy_counter!, alpha, x, y, counter; name = "axpy")
 
     @test JACC.to_host(counter)[1] == N
 
@@ -180,7 +180,7 @@ end
 @testset "reduce" begin
     a = JACC.to_device([1 for i in 1:10])
     @test JACC.parallel_reduce(a) == 10
-    @test JACC.parallel_reduce(min, a) == 1
+    @test JACC.parallel_reduce(min, a; name = "1D_array_min") == 1
     reducer = JACC.reducer(;
         type = eltype(a), range = JACC.array_size(a), op = +)
     reducer(a)
@@ -202,7 +202,8 @@ end
     @test mxd == maximum(ah)
     mxd = JACC.parallel_reduce(max, ad)
     @test mxd == maximum(ah)
-    mnd = JACC.parallel_reduce(SIZE, (i, a) -> a[i], ad; op = min, init = Inf)
+    mnd = JACC.parallel_reduce(
+        SIZE, (i, a) -> a[i], ad; op = min, init = Inf, name = "1D_min")
     @test mnd == minimum(ah)
     mnd = JACC.parallel_reduce(min, ad)
     @test mnd == minimum(ah)
@@ -239,7 +240,7 @@ end
         ah = randn(FloatType, dims)
         ad = JACC.to_device(ah)
         reducer = JACC.reducer(FloatType, dims)
-        reducer(ad)
+        reducer(ad; name = string(N) * "-D_array_sum")
         @test JACC.get_result(reducer) ≈ sum(ah)
 
         p = JACC.parallel_reduce(dims, ad) do args...
@@ -280,7 +281,7 @@ end
         f = (i, a) -> begin
             @inbounds a[i] += 5.0
         end, threads = 1000,
-        sync = false)
+        sync = false, name = "kw_args")
     JACC.synchronize()
     @test JACC.to_host(a_device)≈a_expected rtol=1e-5
 
@@ -292,7 +293,7 @@ end
         (N, N), (i, j, A, B, C) -> begin
             @inbounds C[i, j] = A[i, j] + B[i, j]
         end,
-        A, B, C)
+        A, B, C; name = "launch_spec")
     C_expected = Float32(2.0) .* ones(Float32, N, N)
     @test JACC.to_host(C)≈C_expected rtol=1e-5
 
@@ -340,7 +341,7 @@ end
     @test JACC.to_host(res)[] == 1
     res = JACC.parallel_reduce(
         JACC.launch_spec(), (N, N), (i, j, a) -> a[i, j],
-        a2; op = max, init = -Inf)
+        a2; op = max, init = -Inf, name = "launch_spec_reduce")
     @test JACC.to_host(res)[] == 1
 end
 
@@ -678,7 +679,7 @@ end
     a_expected = a .+ 5.0
 
     a_device = JACC.to_device(a)
-    JACC.parallel_for(N, a_device) do i, a
+    JACC.parallel_for(N, a_device; name = "do_for") do i, a
         @inbounds a[i] += 5.0
     end
     @test JACC.to_host(a_device)≈a_expected rtol=1e-5
@@ -704,7 +705,7 @@ end
     C2_expected = Float32(2.0) .* ones(Float32, M, N)
     @test JACC.to_host(C2)≈C2_expected rtol=1e-5
 
-    res = JACC.parallel_reduce((M, N), A2, B2) do i, j, a, b
+    res = JACC.parallel_reduce((M, N), A2, B2; name = "do_reduce") do i, j, a, b
         a[i, j] * b[i, j]
     end
     @test res≈seq_dot(M, N, JACC.to_host(A2), JACC.to_host(B2)) rtol=1e-1
@@ -769,11 +770,11 @@ end
     a_device = rand_jacc(N)
     a_host = JACC.to_host(a_device)
     a_expected = a_host .+ 5.0
-    JACC.@parallel_for range=N add5!(a_device)
+    JACC.@parallel_for name="macro_for" range=N add5!(a_device)
     @test JACC.to_host(a_device) ≈ a_expected rtol=1e-5
 
     a_device = JACC.to_device(a_host)
-    ret = JACC.@parallel_reduce range=N dot(a_device, a_device)
+    ret = JACC.@parallel_reduce name="macro_reduce" range=N dot(a_device, a_device)
     res = JACC.to_host(ret)[]
     @test res ≈ seq_dot(N, a_host, a_host) rtol=1e-1
 
