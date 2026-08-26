@@ -158,8 +158,6 @@ end
     if length(wk.tmp) != prod(groups)
         wk.tmp = Metal.MtlArray{typeof(init)}(undef, groups)
     end
-    fill!(wk.tmp, init)
-    fill!(wk.ret, init)
     return nothing
 end
 
@@ -186,9 +184,9 @@ function JACC._parallel_reduce!(reducer::JACC.ParallelReduce{MetalBackend},
     _init!(wk, groups, init)
 
     _launch(_make_kname(name, "block_reduce"), items, groups,
-        _parallel_reduce_metal, Val(items), N, op, wk.tmp, f, x...)
-    _launch(_make_kname(name, "grid_reduce"), items, 1, reduce_kernel_metal,
-        Val(items), groups, op, wk.tmp, wk.ret)
+        _parallel_reduce_metal, Val(items), N, op, wk.tmp, init, f, x...)
+    _launch(_make_kname(name, "grid_reduce"), items, 1, _reduce_kernel_metal,
+        Val(items), groups, op, wk.tmp, init, wk.ret)
 
     if reducer.sync
         Metal.synchronize()
@@ -204,9 +202,9 @@ function JACC.parallel_reduce(f, ::MetalBackend, N::Integer, x...; op, init,
     ret = fill!(Metal.MtlArray{typeof(init)}(undef, groups), init)
     rret = Metal.MtlArray([init])
     _launch(_make_kname(name, "block_reduce"), items, groups,
-        _parallel_reduce_metal, Val(items), N, op, ret, f, x...)
-    _launch(_make_kname(name, "grid_reduce"), items, 1, reduce_kernel_metal,
-        Val(items), groups, op, ret, rret)
+        _parallel_reduce_metal, Val(items), N, op, ret, init, f, x...)
+    _launch(_make_kname(name, "grid_reduce"), items, 1, _reduce_kernel_metal,
+        Val(items), groups, op, ret, init, rret)
     Metal.synchronize()
     return Base.Array(rret)[]
 end
@@ -226,9 +224,9 @@ function JACC._parallel_reduce!(reducer::JACC.ParallelReduce{MetalBackend},
     _init!(wk, blocks, init)
 
     _launch(_make_kname(name, "block_reduce"), threads, blocks,
-        _parallel_reduce_metal_MN, (M, N), reducer.op, wk.tmp, f, x...)
+        _parallel_reduce_metal_MN, (M, N), reducer.op, wk.tmp, init, f, x...)
     _launch(_make_kname(name, "grid_reduce"), threads, (1, 1),
-        reduce_kernel_metal_MN, blocks, reducer.op, wk.tmp, wk.ret)
+        _reduce_kernel_metal_MN, blocks, reducer.op, wk.tmp, init, wk.ret)
 
     if reducer.sync
         Metal.synchronize()
@@ -249,9 +247,9 @@ function JACC.parallel_reduce(f, ::MetalBackend, (M, N)::NTuple{2, Integer},
     ret = fill!(Metal.MtlArray{typeof(init)}(undef, (Mgroups, Ngroups)), init)
     rret = Metal.MtlArray([init])
     _launch(_make_kname(name, "block_reduce"), items, groups,
-        _parallel_reduce_metal_MN, (M, N), op, ret, f, x...)
+        _parallel_reduce_metal_MN, (M, N), op, ret, init, f, x...)
     _launch(_make_kname(name, "grid_reduce"), items, (1, 1),
-        reduce_kernel_metal_MN, groups, op, ret, rret)
+        _reduce_kernel_metal_MN, groups, op, ret, init, rret)
     Metal.synchronize()
     return Base.Array(rret)[]
 end
@@ -265,12 +263,12 @@ end
 
 # COV_EXCL_START
 function _parallel_reduce_metal(
-        ::Val{shmem_length}, N, op, ret, f, x...) where {shmem_length}
+        ::Val{shmem_length}, N, op, ret, init, f, x...) where {shmem_length}
     shared_mem = MtlThreadGroupArray(eltype(ret), shmem_length)
     i = thread_position_in_grid().x
     ti = thread_position_in_threadgroup().x
 
-    @inbounds shared_mem[ti] = ret[threadgroup_position_in_grid().x]
+    @inbounds shared_mem[ti] = init
 
     if i <= N
         tmp = @inline f(i, x...)
@@ -292,12 +290,12 @@ function _parallel_reduce_metal(
     return nothing
 end
 
-function reduce_kernel_metal(
-        ::Val{shmem_length}, N, op, red, ret) where {shmem_length}
+function _reduce_kernel_metal(
+        ::Val{shmem_length}, N, op, red, init, ret) where {shmem_length}
     shared_mem = MtlThreadGroupArray(eltype(ret), shmem_length)
     i = thread_position_in_grid().x
     ii = i
-    @inbounds tmp = ret[1]
+    tmp = init
     for ii in i:shmem_length:N
         tmp = op(tmp, @inbounds red[ii])
     end
@@ -318,7 +316,7 @@ function reduce_kernel_metal(
     return nothing
 end
 
-function _parallel_reduce_metal_MN((M, N), op, ret, f, x...)
+function _parallel_reduce_metal_MN((M, N), op, ret, init, f, x...)
     shared_mem = MtlThreadGroupArray(eltype(ret), (16, 16))
     i = thread_position_in_grid().x
     j = thread_position_in_grid().y
@@ -327,7 +325,7 @@ function _parallel_reduce_metal_MN((M, N), op, ret, f, x...)
     bi = threadgroup_position_in_grid().x
     bj = threadgroup_position_in_grid().y
 
-    @inbounds shared_mem[ti, tj] = ret[bi, bj]
+    @inbounds shared_mem[ti, tj] = init
 
     if (i <= M && j <= N)
         tmp = @inline f(i, j, x...)
@@ -352,12 +350,12 @@ function _parallel_reduce_metal_MN((M, N), op, ret, f, x...)
     return nothing
 end
 
-function reduce_kernel_metal_MN((M, N), op, red, ret)
+function _reduce_kernel_metal_MN((M, N), op, red, init, ret)
     shared_mem = MtlThreadGroupArray(eltype(ret), (16, 16))
     i = thread_position_in_threadgroup().x
     j = thread_position_in_threadgroup().y
 
-    @inbounds tmp = ret[1]
+    tmp = init
     for ci in CartesianIndices((i:16:M, j:16:N))
         tmp = op(tmp, @inbounds red[ci])
     end
