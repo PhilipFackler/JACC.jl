@@ -327,7 +327,7 @@ function _parallel_reduce_metal(
 
     max_pwr = JACC.ilog2(shmem_length) - 1
     for p in (max_pwr:-1:0)
-        threadgroup_barrier()
+        threadgroup_barrier(Metal.MemoryFlagThreadGroup)
         tn = 2^p
         if ti <= tn
             @inbounds shared_mem[ti] = op(shared_mem[ti], shared_mem[ti + tn])
@@ -353,7 +353,7 @@ function _reduce_kernel_metal(
 
     max_pwr = JACC.ilog2(shmem_length) - 1
     for p in (max_pwr:-1:0)
-        threadgroup_barrier()
+        threadgroup_barrier(Metal.MemoryFlagThreadGroup)
         tn = 2^p
         if i <= tn
             @inbounds shared_mem[i] = op(shared_mem[i], shared_mem[i + tn])
@@ -383,7 +383,7 @@ function _parallel_reduce_metal_MN((M, N), op, ret, init, f, x...)
     end
 
     for n in (8, 4, 2, 1)
-        threadgroup_barrier()
+        threadgroup_barrier(Metal.MemoryFlagThreadGroup)
         if (ti <= n && tj <= n)
             @inbounds shared_mem[ti, tj] = op(
                 shared_mem[ti, tj], shared_mem[ti + n, tj + n])
@@ -412,7 +412,7 @@ function _reduce_kernel_metal_MN((M, N), op, red, init, ret)
     @inbounds shared_mem[i, j] = tmp
 
     for n in (8, 4, 2, 1)
-        threadgroup_barrier()
+        threadgroup_barrier(Metal.MemoryFlagThreadGroup)
         if i <= n && j <= n
             @inbounds shared_mem[i, j] = op(
                 shared_mem[i, j], shared_mem[i + n, j + n])
@@ -466,11 +466,11 @@ end
 
 function JACC.shared(::MetalBackend, x::AbstractArray)
     shmem = Metal.mtl(x; storage = Metal.SharedStorage)
-    # Metal.threadgroup_barrier()
+    # Metal.threadgroup_barrier(Metal.MemoryFlagThreadGroup)
     return shmem
 end
 
-JACC.sync_workgroup(::MetalBackend) = Metal.threadgroup_barrier()
+JACC.sync_workgroup(::MetalBackend) = Metal.threadgroup_barrier(Metal.MemoryFlagThreadGroup)
 
 JACC.array_type(::MetalBackend) = Metal.MtlArray
 
