@@ -264,13 +264,18 @@ function JACC._parallel_reduce!(reducer::JACC.ParallelReduce{MetalBackend},
 
     _init!(wk, groups, init)
 
+    println("reducer:")
+    @show wk.tmp
     kargs1 = _kernel_args((M, N), op, wk.tmp, init, f, x...)
     kernel1 = _make_kernel(_parallel_reduce_metal_MN, kargs1, _make_kname(name, "block_reduce"))
     kernel1(kargs1...; threads = threads, groups = groups, queue = reducer.stream)
 
+    @show wk.tmp
+    @show wk.ret
     kargs2 = _kernel_args(groups, op, wk.tmp, init, wk.ret)
     kernel2 = _make_kernel(_reduce_kernel_metal_MN, kargs2, _make_kname(name, "grid_reduce"))
     kernel2(kargs2...; threads = threads, groups = (1, 1), queue = reducer.stream)
+    @show wk.ret
 
     if reducer.sync
         Metal.synchronize()
@@ -292,13 +297,18 @@ function JACC.parallel_reduce(f, ::MetalBackend, (M, N)::NTuple{2, Integer},
     ret = Metal.MtlArray{typeof(init)}(undef, groups)
     rret = Metal.MtlArray([init])
 
+    println("standard:")
+    @show ret
     kargs1 = _kernel_args((M, N), op, ret, init, f, x...)
     kernel1 = _make_kernel(_parallel_reduce_metal_MN, kargs1, _make_kname(name, "block_reduce"))
     kernel1(kargs1...; threads = items, groups = groups)
 
+    @show ret
+    @show rret
     kargs2 = _kernel_args(groups, op, ret, init, rret)
     kernel2 = _make_kernel(_reduce_kernel_metal_MN, kargs2, _make_kname(name, "grid_reduce"))
     kernel2(kargs2...; threads = items, groups = (1, 1))
+    @show rret
 
     Metal.synchronize()
     return Base.Array(rret)[]
