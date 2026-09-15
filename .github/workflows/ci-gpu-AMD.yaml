@@ -16,6 +16,8 @@ jobs:
     env:
       GH_JOBNAME: ${{matrix.jobname}}
       GH_OS: Linux
+      JULIA_DEPOT_PATH: /home/wfg/.julia-cousteau
+      HIP_VISIBLE_DEVICES: "0,1"
     strategy:
       fail-fast: false
       matrix:
@@ -74,7 +76,7 @@ jobs:
       - name: Instantiate
         if: steps.check.outputs.triggered == 'true'
         run: |
-          source ~/.bashrc
+          module load julia/1.12.6
           julia --version
           echo $JULIA_DEPOT_PATH
           julia --project -e 'using Pkg; Pkg.instantiate()'
@@ -82,11 +84,11 @@ jobs:
 
       - name: Test
         if: steps.check.outputs.triggered == 'true'
-        run: | 
-           source ~/.bashrc
-           julia --version
-           echo $JULIA_DEPOT_PATH
-           julia --project -e 'using Pkg; Pkg.test(coverage=true, julia_args=["--check-bounds=yes", "--compiled-modules=yes", "--depwarn=yes"], force_latest_compatible_version=false, allow_reresolve=true)'
+        run: |
+          module load julia/1.12.6
+          julia --version
+          echo $JULIA_DEPOT_PATH
+          julia --project -e 'using Pkg; Pkg.test(coverage=true, julia_args=["--check-bounds=yes", "--compiled-modules=yes", "--depwarn=yes"], force_latest_compatible_version=false, allow_reresolve=true)'
 
       - name: Process Coverage
         if: steps.check.outputs.triggered == 'true'
@@ -127,6 +129,8 @@ jobs:
     env:
       GH_JOBNAME: ${{matrix.jobname}}
       GH_OS: Linux
+      JULIA_DEPOT_PATH: /home/wfg/.julia-faraday
+      HIP_VISIBLE_DEVICES: "0,1,2,3"
     strategy:
       fail-fast: false
       matrix:
@@ -185,7 +189,7 @@ jobs:
       - name: Instantiate
         if: steps.check.outputs.triggered == 'true'
         run: |
-          source ~/.bashrc
+          module load julia/1.12.6
           julia --version
           echo $JULIA_DEPOT_PATH
           julia --project -e 'using Pkg; Pkg.instantiate()'
@@ -194,7 +198,7 @@ jobs:
       - name: Test
         if: steps.check.outputs.triggered == 'true'
         run: |
-          source ~/.bashrc
+          module load julia/1.12.6
           julia --version
           echo $JULIA_DEPOT_PATH
           julia --project -e 'using Pkg; Pkg.test(coverage=true, julia_args=["--check-bounds=yes", "--compiled-modules=yes", "--depwarn=yes"], force_latest_compatible_version=false, allow_reresolve=true)'
