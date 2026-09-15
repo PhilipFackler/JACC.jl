@@ -76,6 +76,7 @@ jobs:
       - name: Instantiate
         if: steps.check.outputs.triggered == 'true'
         run: |
+          source /etc/profile.d/lmod.sh
           module load julia/1.12.6
           julia --version
           echo $JULIA_DEPOT_PATH
@@ -85,6 +86,7 @@ jobs:
       - name: Test
         if: steps.check.outputs.triggered == 'true'
         run: |
+          source /etc/profile.d/lmod.sh
           module load julia/1.12.6
           julia --version
           echo $JULIA_DEPOT_PATH
@@ -189,6 +191,7 @@ jobs:
       - name: Instantiate
         if: steps.check.outputs.triggered == 'true'
         run: |
+          source /etc/profile.d/lmod.sh
           module load julia/1.12.6
           julia --version
           echo $JULIA_DEPOT_PATH
@@ -198,6 +201,7 @@ jobs:
       - name: Test
         if: steps.check.outputs.triggered == 'true'
         run: |
+          source /etc/profile.d/lmod.sh
           module load julia/1.12.6
           julia --version
           echo $JULIA_DEPOT_PATH
