@@ -1091,38 +1091,43 @@ end
 if JACC.backend != "metal"
     @testset "Multi" begin
         # Unidimensional arrays
-        SIZE = 10
-        x = round.(rand(FloatType, SIZE) * 100)
-        y = round.(rand(FloatType, SIZE) * 100)
+        SIZE = 8
+        x1 = round.(rand(FloatType, SIZE) * 100)
+        y1 = round.(rand(FloatType, SIZE) * 100)
         alpha = 2.5
-        dx = JACC.Multi.array(x)
-        dy = JACC.Multi.array(y)
-        JACC.Multi.parallel_for(SIZE, alpha, dx, dy) do i, alpha, x, y
+        dx1 = JACC.Multi.array(x1)
+        dy1 = JACC.Multi.array(y1)
+        JACC.Multi.parallel_for(SIZE, alpha, dx1, dy1) do i, alpha, x, y
             x[i] += alpha * y[i]
         end
-        x_expected = x
-        seq_axpy(SIZE, alpha, x_expected, y)
-        @test JACC.to_host(dx)≈x_expected rtol=1e-1
-        res = JACC.Multi.parallel_reduce(SIZE, dot, dx, dy)
-        @test res≈seq_dot(SIZE, x_expected, y) rtol=1e-1
+        x1_expected = x1
+        seq_axpy(SIZE, alpha, x1_expected, y1)
+        @test JACC.to_host(dx1)≈x1_expected rtol=1e-1
+        res = JACC.Multi.parallel_reduce(SIZE, dot, dx1, dy1)
+        @test res≈seq_dot(SIZE, x1_expected, y1) rtol=1e-1
 
         # Multidimensional arrays
-        SIZE = 10
-        x = round.(rand(FloatType, SIZE, SIZE) * 100)
-        y = round.(rand(FloatType, SIZE, SIZE) * 100)
+        SIZE = 8
+        x2 = round.(rand(FloatType, SIZE, SIZE) * 100)
+        y2 = round.(rand(FloatType, SIZE, SIZE) * 100)
         alpha = 2.5
-        dx = JACC.Multi.array(x)
-        dy = JACC.Multi.array(y)
+        dx2 = JACC.Multi.array(x2)
+        dy2 = JACC.Multi.array(y2)
         JACC.Multi.parallel_for(
-            (SIZE, SIZE), alpha, dx, dy) do i, j, alpha, x,
-        y
+            (SIZE, SIZE), alpha, dx2, dy2) do i, j, alpha, x, y
             x[i, j] += alpha * y[i, j]
         end
-        x_expected = x
-        seq_axpy(SIZE, SIZE, alpha, x_expected, y)
-        @test JACC.to_host(dx)≈x_expected rtol=1e-1
-        res = JACC.Multi.parallel_reduce((SIZE, SIZE), dot, dx, dy)
-        @test res≈seq_dot(SIZE, SIZE, x_expected, y) rtol=1e-1
+        x2_expected = x2
+        seq_axpy(SIZE, SIZE, alpha, x2_expected, y2)
+        @test JACC.to_host(dx2)≈x2_expected rtol=1e-1
+        res = JACC.Multi.parallel_reduce((SIZE, SIZE), dot, dx2, dy2)
+        @test res≈seq_dot(SIZE, SIZE, x2_expected, y2) rtol=1e-1
+
+        # Ghost elements
+        dx1 = JACC.Multi.array(x1_expected, ghost_dims = 1)
+        @test JACC.to_host(dx1) == x1_expected
+        dx2 = JACC.Multi.array(x2_expected, ghost_dims = 1)
+        @test JACC.to_host(dx2) == x2_expected
 
         # HPCG example
         function matvecmul(i, a1, a2, a3, x, y, SIZE, ndev)
@@ -1138,7 +1143,7 @@ if JACC.backend != "metal"
             end
         end
 
-        SIZE = 10
+        SIZE = 8
         # Initialization of inputs
         a1 = ones(FloatType, SIZE)
         a2 = ones(FloatType, SIZE)
