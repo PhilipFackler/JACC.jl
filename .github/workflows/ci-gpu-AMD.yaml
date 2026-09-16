@@ -17,7 +17,6 @@ jobs:
       GH_JOBNAME: ${{matrix.jobname}}
       GH_OS: Linux
       JULIA_DEPOT_PATH: /home/wfg/.julia-cousteau
-      HIP_VISIBLE_DEVICES: "0,1"
     strategy:
       fail-fast: false
       matrix:
@@ -132,7 +131,6 @@ jobs:
       GH_JOBNAME: ${{matrix.jobname}}
       GH_OS: Linux
       JULIA_DEPOT_PATH: /home/wfg/.julia-faraday
-      HIP_VISIBLE_DEVICES: "0,1,2,3"
     strategy:
       fail-fast: false
       matrix:
