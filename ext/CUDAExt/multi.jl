@@ -44,7 +44,6 @@ JACC.to_host(x::MultiArray) = convert(Base.Array, x)
 JACC.Multi.multi_array_type(::CUDABackend) = MultiArray
 
 function Base.convert(::Type{Base.Array}, x::MultiArray{T, 1, NG}) where {T, NG}
-    device!(0)
     ndev = ndevices()
     ret = Base.Array{T, 1}(undef, x.orig_size)
     partlen = cld(x.orig_size, ndev)
@@ -64,11 +63,11 @@ function Base.convert(::Type{Base.Array}, x::MultiArray{T, 1, NG}) where {T, NG}
 end
 
 function Base.convert(::Type{Base.Array}, x::MultiArray{T, 2, NG}) where {T, NG}
-    device!(0)
     ndev = ndevices()
     ret = Base.Array{T, 2}(undef, x.orig_size)
-    partlen = cld(x.orig_size[2], ndev)
-    lastlen = x.orig_size[2] - ((ndev - 1) * partlen)
+    total_length = x.orig_size[2]
+    partlen = cld(total_length, ndev)
+    lastlen = total_length - ((ndev - 1) * partlen)
     for i in 1:ndev
         device!(i - 1)
         if i == 1
@@ -86,7 +85,7 @@ function Base.convert(::Type{Base.Array}, x::MultiArray{T, 2, NG}) where {T, NG}
                 ret,
                 CartesianIndices((
                     1:size(x.a2[i], 1),
-                    (((i - 1) * partlen) + 1):(i * lastlen)
+                    (((i - 1) * partlen) + 1):total_length
                 )),
                 x.a2[i],
                 CartesianIndices((1:size(x.a2[i], 1), (1 + NG):(lastlen + NG)))
@@ -109,7 +108,6 @@ end
 
 function make_multi_array(x::Base.Vector{T}) where {T}
     ndev = ndevices()
-    device!(0)
     total_length = length(x)
     partlen = cld(total_length, ndev)
     parts = Vector{CuVector{T}}(undef, ndev)
@@ -117,7 +115,11 @@ function make_multi_array(x::Base.Vector{T}) where {T}
 
     for i in 1:ndev
         device!(i - 1)
-        parts[i] = CuArray(x[(((i - 1) * partlen) + 1):(i * partlen)])
+        if i == ndev
+            parts[i] = CuArray(x[(((i - 1) * partlen) + 1):total_length])
+        else
+            parts[i] = CuArray(x[(((i - 1) * partlen) + 1):(i * partlen)])
+        end
         devparts[i] = ArrayPart(cudaconvert(parts[i]), i, ndev, 0)
     end
 
@@ -127,7 +129,6 @@ end
 
 function make_multi_array(x::Base.Vector{T}, ghost_dims) where {T}
     ndev = ndevices()
-    device!(0)
     total_length = length(x)
     partlen = cld(total_length, ndev)
     parts = Vector{CuVector{T}}(undef, ndev)
@@ -139,7 +140,7 @@ function make_multi_array(x::Base.Vector{T}, ghost_dims) where {T}
         if i == 1
             parts[i] = CuArray(x[((i - 1) * partlen + 1):(i * partlen + ng)])
         elseif i == ndev
-            parts[i] = CuArray(x[((i - 1) * partlen + 1 - ng):(i * partlen)])
+            parts[i] = CuArray(x[((i - 1) * partlen + 1 - ng):total_length])
         else
             parts[i] = CuArray(x[((i - 1) * partlen + 1 - ng):(i * partlen + ng)])
         end
@@ -152,7 +153,6 @@ end
 
 function make_multi_array(x::Base.Matrix{T}) where {T}
     ndev = ndevices()
-    device!(0)
     total_length = size(x, 2)
     partlen = cld(total_length, ndev)
     parts = Vector{CuMatrix{T}}(undef, ndev)
@@ -160,7 +160,11 @@ function make_multi_array(x::Base.Matrix{T}) where {T}
 
     for i in 1:ndev
         device!(i - 1)
-        parts[i] = CuArray(x[:, (((i - 1) * partlen) + 1):(i * partlen)])
+        if i == ndev
+            parts[i] = CuArray(x[:, (((i - 1) * partlen) + 1):total_length])
+        else
+            parts[i] = CuArray(x[:, (((i - 1) * partlen) + 1):(i * partlen)])
+        end
         devparts[i] = ArrayPart(cudaconvert(parts[i]), i, ndev, 0)
     end
 
@@ -170,7 +174,6 @@ end
 
 function make_multi_array(x::Base.Matrix{T}, ghost_dims) where {T}
     ndev = ndevices()
-    device!(0)
     total_length = size(x, 2)
     partlen = cld(total_length, ndev)
     parts = Vector{CuMatrix{T}}(undef, ndev)
@@ -182,10 +185,10 @@ function make_multi_array(x::Base.Matrix{T}, ghost_dims) where {T}
         if i == 1
             parts[i] = CuArray(x[:, ((i - 1) * partlen + 1):(i * partlen + ng)])
         elseif i == ndev
-            parts[i] = CuArray(x[:, ((i - 1) * partlen + 1 - ng):(i * partlen)])
+            parts[i] = CuArray(x[:, ((i - 1) * partlen + 1 - ng):total_length])
         else
             parts[i] = CuArray(x[
-            :, ((i - 1) * partlen + 1 - ng):(i * partlen + ng)])
+                :, ((i - 1) * partlen + 1 - ng):(i * partlen + ng)])
         end
         devparts[i] = ArrayPart(cudaconvert(parts[i]), i, ndev, ng)
     end
@@ -380,18 +383,23 @@ function JACC.Multi.copy!(::CUDABackend, x::MultiArray, y::MultiArray)
 end
 
 function JACC.Multi.parallel_for(::CUDABackend, N::Integer, f::Callable, x...)
-    device!(0)
     ndev = length(devices())
-    N_multi = cld(N, ndev)
+    N_part = cld(N, ndev)
+    N_last = N - ((ndev - 1) * N_part)
     numThreads = 256
-    threads = min(N_multi, numThreads)
-    blocks = cld(N_multi, threads)
+    threads = min(N_part, numThreads)
+    blocks = cld(N_part, threads)
 
     for i in 1:ndev
         device!(i - 1)
         dev_id = i
-        @cuda threads=threads blocks=blocks _multi_parallel_for_cuda(
-            N_multi, f, process_param.((x), dev_id)...)
+        if i == ndev
+            @cuda threads=threads blocks=blocks _multi_parallel_for_cuda(
+                N_last, f, process_param.((x), dev_id)...)
+        else
+            @cuda threads=threads blocks=blocks _multi_parallel_for_cuda(
+                N_part, f, process_param.((x), dev_id)...)
+        end
     end
 
     for i in 1:ndev
@@ -405,20 +413,26 @@ end
 function JACC.Multi.parallel_for(::CUDABackend,
         (M, N)::NTuple{2, Integer}, f::Callable, x...)
     ndev = length(devices())
-    N_multi = cld(N, ndev)
+    N_part = cld(N, ndev)
+    N_last = N - ((ndev - 1) * N_part)
     numThreads = 16
     Mthreads = min(M, numThreads)
-    Nthreads = min(N_multi, numThreads)
+    Nthreads = min(N_part, numThreads)
     threads = (Mthreads, Nthreads)
     Mblocks = cld(M, Mthreads)
-    Nblocks = cld(N_multi, Nthreads)
+    Nblocks = cld(N_part, Nthreads)
     blocks = (Mblocks, Nblocks)
 
     for i in 1:ndev
         device!(i - 1)
         dev_id = i
-        @cuda threads=threads blocks=blocks _multi_parallel_for_cuda_MN(
-            M, N_multi, f, process_param.((x), dev_id)...)
+        if i == ndev
+            @cuda threads=threads blocks=blocks _multi_parallel_for_cuda_MN(
+                M, N_last, f, process_param.((x), dev_id)...)
+        else
+            @cuda threads=threads blocks=blocks _multi_parallel_for_cuda_MN(
+                M, N_part, f, process_param.((x), dev_id)...)
+        end
     end
 
     for i in 1:ndev
@@ -431,14 +445,14 @@ end
 
 function JACC.Multi.parallel_reduce(
         ::CUDABackend, N::Integer, f::Callable, x...)
-    device!(0)
     ndev = length(devices())
     ret = Vector{Any}(undef, ndev)
     rret = Vector{Any}(undef, ndev)
-    N_multi = cld(N, ndev)
+    N_part = cld(N, ndev)
+    N_last = N - ((ndev - 1) * N_part)
     numThreads = 512
-    threads = min(N_multi, numThreads)
-    blocks = cld(N_multi, threads)
+    threads = min(N_part, numThreads)
+    blocks = cld(N_part, threads)
     shmem_size = 512 * sizeof(Float64)
 
     for i in 1:ndev
@@ -450,8 +464,13 @@ function JACC.Multi.parallel_reduce(
     for i in 1:ndev
         device!(i - 1)
         dev_id = i
-        @cuda threads=threads blocks=blocks shmem=shmem_size _multi_parallel_reduce_cuda(
-            N_multi, ret[i], f, process_param.((x), dev_id)...)
+        if i == ndev
+            @cuda threads=threads blocks=blocks shmem=shmem_size _multi_parallel_reduce_cuda(
+                N_last, ret[i], f, process_param.((x), dev_id)...)
+        else
+            @cuda threads=threads blocks=blocks shmem=shmem_size _multi_parallel_reduce_cuda(
+                N_part, ret[i], f, process_param.((x), dev_id)...)
+        end
         @cuda threads=threads blocks=1 shmem=shmem_size _multi_reduce_kernel_cuda(
             blocks, ret[i], rret[i])
     end
@@ -476,13 +495,14 @@ function JACC.Multi.parallel_reduce(::CUDABackend,
     ndev = length(devices())
     ret = Vector{Any}(undef, ndev)
     rret = Vector{Any}(undef, ndev)
-    N_multi = cld(N, ndev)
+    N_part = cld(N, ndev)
+    N_last = N - ((ndev - 1) * N_part)
     numThreads = 16
     Mthreads = min(M, numThreads)
-    Nthreads = min(N_multi, numThreads)
+    Nthreads = min(N_part, numThreads)
     threads = (Mthreads, Nthreads)
     Mblocks = cld(M, Mthreads)
-    Nblocks = cld(N_multi, Nthreads)
+    Nblocks = cld(N_part, Nthreads)
     blocks = (Mblocks, Nblocks)
     shmem_size = 16 * 16 * sizeof(Float64)
 
@@ -496,8 +516,13 @@ function JACC.Multi.parallel_reduce(::CUDABackend,
         device!(i - 1)
         dev_id = i
 
-        @cuda threads=threads blocks=blocks shmem=shmem_size _multi_parallel_reduce_cuda_MN(
-            (M, N_multi), ret[i], f, process_param.((x), dev_id)...)
+        if i == ndev
+            @cuda threads=threads blocks=blocks shmem=shmem_size _multi_parallel_reduce_cuda_MN(
+                (M, N_last), ret[i], f, process_param.((x), dev_id)...)
+        else
+            @cuda threads=threads blocks=blocks shmem=shmem_size _multi_parallel_reduce_cuda_MN(
+                (M, N_part), ret[i], f, process_param.((x), dev_id)...)
+        end
 
         @cuda threads=threads blocks=(1, 1) shmem=shmem_size _multi_reduce_kernel_cuda_MN(
             blocks, ret[i], rret[i])

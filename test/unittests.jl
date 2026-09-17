@@ -1091,7 +1091,7 @@ end
 if JACC.backend != "metal"
     @testset "Multi" begin
         # Unidimensional arrays
-        SIZE = 8
+        SIZE = 13
         x1 = round.(rand(FloatType, SIZE) * 100)
         y1 = round.(rand(FloatType, SIZE) * 100)
         alpha = 2.5
@@ -1107,7 +1107,7 @@ if JACC.backend != "metal"
         @test res≈seq_dot(SIZE, x1_expected, y1) rtol=1e-1
 
         # Multidimensional arrays
-        SIZE = 8
+        SIZE = 13
         x2 = round.(rand(FloatType, SIZE, SIZE) * 100)
         y2 = round.(rand(FloatType, SIZE, SIZE) * 100)
         alpha = 2.5
@@ -1130,12 +1130,12 @@ if JACC.backend != "metal"
         @test JACC.to_host(dx2) == x2_expected
 
         # HPCG example
-        function matvecmul(i, a1, a2, a3, x, y, SIZE, ndev)
+        function matvecmul(i, a1, a2, a3, x, y, ndev)
             ind = JACC.Multi.ghost_shift(i, a1)
             dev_id = JACC.Multi.device_id(a1)
-            if dev_id == 1 && i == 1
+            if dev_id == 1 && ind == 1
                 y[ind] = a2[ind] * x[ind] + a1[ind] * x[ind + 1]
-            elseif dev_id == ndev && i == SIZE
+            elseif dev_id == ndev && ind == length(y)
                 y[ind] = a3[ind] * x[ind - 1] + a2[ind] * x[ind]
             else
                 y[ind] = a3[ind] * x[ind - 1] + a2[ind] * x[ind] +
@@ -1143,7 +1143,7 @@ if JACC.backend != "metal"
             end
         end
 
-        SIZE = 8
+        SIZE = 13
         # Initialization of inputs
         a1 = ones(FloatType, SIZE)
         a2 = ones(FloatType, SIZE)
@@ -1170,12 +1170,11 @@ if JACC.backend != "metal"
         jx = JACC.Multi.array(x)
         jr_old = JACC.Multi.array(r_old)
         jr_aux = JACC.Multi.array(r_aux)
-        ssize = JACC.Multi.part_length(jp)
         # HPCG Algorithm
         while cond >= 1e-14
             JACC.Multi.copy!(jr_old, jr)
             JACC.Multi.parallel_for(
-                SIZE, matvecmul, gja1, gja2, gja3, gjp, gjs, ssize, ndev)
+                SIZE, matvecmul, gja1, gja2, gja3, gjp, gjs, ndev)
             JACC.Multi.sync_ghost_elems!(gjs)
             JACC.Multi.copy!(js, gjs) #js = gjs
             alpha0 = JACC.Multi.parallel_reduce(SIZE, dot, jr, jr)

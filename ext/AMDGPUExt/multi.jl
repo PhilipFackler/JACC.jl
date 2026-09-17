@@ -45,7 +45,6 @@ JACC.to_host(x::MultiArray) = convert(Base.Array, x)
 JACC.Multi.multi_array_type(::AMDGPUBackend) = MultiArray
 
 function Base.convert(::Type{Base.Array}, x::MultiArray{T, 1, NG}) where {T, NG}
-    AMDGPU.device_id!(1)
     ndev = ndevices()
     ret = Base.Array{T, 1}(undef, x.orig_size)
     partlen = cld(x.orig_size, ndev)
@@ -65,11 +64,11 @@ function Base.convert(::Type{Base.Array}, x::MultiArray{T, 1, NG}) where {T, NG}
 end
 
 function Base.convert(::Type{Base.Array}, x::MultiArray{T, 2, NG}) where {T, NG}
-    AMDGPU.device_id!(1)
     ndev = ndevices()
     ret = Base.Array{T, 2}(undef, x.orig_size)
-    partlen = cld(x.orig_size[2], ndev)
-    lastlen = x.orig_size[2] - ((ndev - 1) * partlen)
+    total_length = x.orig_size[2]
+    partlen = cld(total_length, ndev)
+    lastlen = total_length - ((ndev - 1) * partlen)
     for i in 1:ndev
         AMDGPU.device_id!(i)
         if i == 1
@@ -87,7 +86,7 @@ function Base.convert(::Type{Base.Array}, x::MultiArray{T, 2, NG}) where {T, NG}
                 ret,
                 CartesianIndices((
                     1:size(x.a2[i], 1),
-                    (((i - 1) * partlen) + 1):(i * lastlen)
+                    (((i - 1) * partlen) + 1):total_length
                 )),
                 x.a2[i],
                 CartesianIndices((1:size(x.a2[i], 1), (1 + NG):(lastlen + NG)))
@@ -110,7 +109,6 @@ end
 
 function make_multi_array(x::Base.Vector{T}) where {T}
     ndev = ndevices()
-    AMDGPU.device_id!(1)
     total_length = length(x)
     partlen = cld(total_length, ndev)
     parts = Vector{ROCVector{T}}(undef, ndev)
@@ -118,7 +116,11 @@ function make_multi_array(x::Base.Vector{T}) where {T}
 
     for i in 1:ndev
         AMDGPU.device_id!(i)
-        parts[i] = ROCArray(x[(((i - 1) * partlen) + 1):(i * partlen)])
+        if i == ndev
+            parts[i] = ROCArray(x[(((i - 1) * partlen) + 1):total_length])
+        else
+            parts[i] = ROCArray(x[(((i - 1) * partlen) + 1):(i * partlen)])
+        end
         devparts[i] = ArrayPart(rocconvert(parts[i]), i, ndev, 0)
     end
 
@@ -128,7 +130,6 @@ end
 
 function make_multi_array(x::Base.Vector{T}, ghost_dims) where {T}
     ndev = ndevices()
-    AMDGPU.device_id!(1)
     total_length = length(x)
     partlen = cld(total_length, ndev)
     parts = Vector{ROCVector{T}}(undef, ndev)
@@ -140,7 +141,7 @@ function make_multi_array(x::Base.Vector{T}, ghost_dims) where {T}
         if i == 1
             parts[i] = ROCArray(x[((i - 1) * partlen + 1):(i * partlen + ng)])
         elseif i == ndev
-            parts[i] = ROCArray(x[((i - 1) * partlen + 1 - ng):(i * partlen)])
+            parts[i] = ROCArray(x[((i - 1) * partlen + 1 - ng):total_length])
         else
             parts[i] = ROCArray(x[((i - 1) * partlen + 1 - ng):(i * partlen + ng)])
         end
@@ -153,7 +154,6 @@ end
 
 function make_multi_array(x::Base.Matrix{T}) where {T}
     ndev = ndevices()
-    AMDGPU.device_id!(1)
     total_length = size(x, 2)
     partlen = cld(total_length, ndev)
     parts = Vector{ROCMatrix{T}}(undef, ndev)
@@ -161,7 +161,11 @@ function make_multi_array(x::Base.Matrix{T}) where {T}
 
     for i in 1:ndev
         AMDGPU.device_id!(i)
-        parts[i] = ROCArray(x[:, (((i - 1) * partlen) + 1):(i * partlen)])
+        if i == ndev
+            parts[i] = ROCArray(x[:, (((i - 1) * partlen) + 1):total_length])
+        else
+            parts[i] = ROCArray(x[:, (((i - 1) * partlen) + 1):(i * partlen)])
+        end
         devparts[i] = ArrayPart(rocconvert(parts[i]), i, ndev, 0)
     end
 
@@ -171,7 +175,6 @@ end
 
 function make_multi_array(x::Base.Matrix{T}, ghost_dims) where {T}
     ndev = ndevices()
-    AMDGPU.device_id!(1)
     total_length = size(x, 2)
     partlen = cld(total_length, ndev)
     parts = Vector{ROCMatrix{T}}(undef, ndev)
@@ -182,13 +185,13 @@ function make_multi_array(x::Base.Matrix{T}, ghost_dims) where {T}
         AMDGPU.device_id!(i)
         if i == 1
             parts[i] = ROCArray(x[
-            :, ((i - 1) * partlen + 1):(i * partlen + ng)])
+                :, ((i - 1) * partlen + 1):(i * partlen + ng)])
         elseif i == ndev
             parts[i] = ROCArray(x[
-            :, ((i - 1) * partlen + 1 - ng):(i * partlen)])
+                :, ((i - 1) * partlen + 1 - ng):total_length])
         else
             parts[i] = ROCArray(x[
-            :, ((i - 1) * partlen + 1 - ng):(i * partlen + ng)])
+                :, ((i - 1) * partlen + 1 - ng):(i * partlen + ng)])
         end
         devparts[i] = ArrayPart(rocconvert(parts[i]), i, ndev, ng)
     end
@@ -385,18 +388,23 @@ function JACC.Multi.copy!(::AMDGPUBackend, x::MultiArray, y::MultiArray)
 end
 
 function JACC.Multi.parallel_for(::AMDGPUBackend, N::Integer, f::Callable, x...)
-    AMDGPU.device_id!(1)
     ndev = ndevices()
-    N_multi = cld(N, ndev)
+    N_part = cld(N, ndev)
+    N_last = N - ((ndev - 1) * N_part)
     numThreads = 256
-    threads = min(N_multi, numThreads)
-    blocks = cld(N_multi, threads)
+    threads = min(N_part, numThreads)
+    blocks = cld(N_part, threads)
 
     for i in 1:ndev
         AMDGPU.device_id!(i)
         dev_id = i
-        @roc groupsize=threads gridsize=blocks _multi_parallel_for_amdgpu(
-            N_multi, f, process_param.((x), dev_id)...)
+        if i == ndev
+            @roc groupsize=threads gridsize=blocks _multi_parallel_for_amdgpu(
+                N_last, f, process_param.((x), dev_id)...)
+        else
+            @roc groupsize=threads gridsize=blocks _multi_parallel_for_amdgpu(
+                N_part, f, process_param.((x), dev_id)...)
+        end
     end
 
     for i in 1:ndev
@@ -410,20 +418,26 @@ end
 function JACC.Multi.parallel_for(
         ::AMDGPUBackend, (M, N)::NTuple{2, Integer}, f::Callable, x...)
     ndev = ndevices()
-    N_multi = ceil(Int, N / ndev)
+    N_part = ceil(Int, N / ndev)
+    N_last = N - ((ndev - 1) * N_part)
     numThreads = 16
     Mthreads = min(M, numThreads)
-    Nthreads = min(N_multi, numThreads)
+    Nthreads = min(N_part, numThreads)
     threads = (Mthreads, Nthreads)
     Mblocks = cld(M, Mthreads)
-    Nblocks = cld(N_multi, Nthreads)
+    Nblocks = cld(N_part, Nthreads)
     blocks = (Mblocks, Nblocks)
 
     for i in 1:ndev
         AMDGPU.device_id!(i)
         dev_id = i
-        @roc groupsize=threads gridsize=blocks _multi_parallel_for_amdgpu_MN(
-            M, N_multi, f, process_param.((x), dev_id)...)
+        if i == ndev
+            @roc groupsize=threads gridsize=blocks _multi_parallel_for_amdgpu_MN(
+                M, N_last, f, process_param.((x), dev_id)...)
+        else
+            @roc groupsize=threads gridsize=blocks _multi_parallel_for_amdgpu_MN(
+                M, N_part, f, process_param.((x), dev_id)...)
+        end
     end
 
     for i in 1:ndev
@@ -436,14 +450,14 @@ end
 
 function JACC.Multi.parallel_reduce(
         ::AMDGPUBackend, N::Integer, f::Callable, x...)
-    AMDGPU.device_id!(1)
     ndev = length(AMDGPU.devices())
     ret = Vector{Any}(undef, ndev)
     rret = Vector{Any}(undef, ndev)
-    N_multi = cld(N, ndev)
+    N_part = cld(N, ndev)
+    N_last = N - ((ndev - 1) * N_part)
     numThreads = 512
-    threads = min(N_multi, numThreads)
-    blocks = cld(N_multi, threads)
+    threads = min(N_part, numThreads)
+    blocks = cld(N_part, threads)
     final_rret = AMDGPU.zeros(Float64, 1)
 
     for i in 1:ndev
@@ -455,8 +469,13 @@ function JACC.Multi.parallel_reduce(
     for i in 1:ndev
         AMDGPU.device_id!(i)
         dev_id = i
-        @roc groupsize=threads gridsize=blocks _multi_parallel_reduce_amdgpu(
-            N_multi, ret[i], f, process_param.((x), dev_id)...)
+        if i == ndev
+            @roc groupsize=threads gridsize=blocks _multi_parallel_reduce_amdgpu(
+                N_last, ret[i], f, process_param.((x), dev_id)...)
+        else
+            @roc groupsize=threads gridsize=blocks _multi_parallel_reduce_amdgpu(
+                N_part, ret[i], f, process_param.((x), dev_id)...)
+        end
         @roc groupsize=threads gridsize=1 _multi_reduce_kernel_amdgpu(
             blocks, ret[i], rret[i])
     end
@@ -472,11 +491,6 @@ function JACC.Multi.parallel_reduce(
         final_rret += Base.Array(rret[i])[]
     end
 
-    # for i in 1:ndev
-    #     tmp_final_rret += tmp_rret[i][1]
-    # end
-    # final_rret = tmp_final_rret
-
     AMDGPU.device_id!(1)
 
     return final_rret
@@ -487,13 +501,14 @@ function JACC.Multi.parallel_reduce(::AMDGPUBackend,
     ndev = ndevices()
     ret = Vector{Any}(undef, ndev)
     rret = Vector{Any}(undef, ndev)
-    N_multi = cld(N, ndev)
+    N_part = cld(N, ndev)
+    N_last = N - ((ndev - 1) * N_part)
     numThreads = 16
     Mthreads = min(M, numThreads)
-    Nthreads = min(N_multi, numThreads)
+    Nthreads = min(N_part, numThreads)
     threads = (Mthreads, Nthreads)
     Mblocks = cld(M, Mthreads)
-    Nblocks = cld(N_multi, Nthreads)
+    Nblocks = cld(N_part, Nthreads)
     blocks = (Mblocks, Nblocks)
     final_rret = AMDGPU.zeros(Float64, 1)
 
@@ -507,8 +522,13 @@ function JACC.Multi.parallel_reduce(::AMDGPUBackend,
         AMDGPU.device_id!(i)
         dev_id = i
 
-        @roc groupsize=threads gridsize=blocks _multi_parallel_reduce_amdgpu_MN(
-            (M, N_multi), ret[i], f, process_param.((x), dev_id)...)
+        if i == ndev
+            @roc groupsize=threads gridsize=blocks _multi_parallel_reduce_amdgpu_MN(
+                (M, N_last), ret[i], f, process_param.((x), dev_id)...)
+        else
+            @roc groupsize=threads gridsize=blocks _multi_parallel_reduce_amdgpu_MN(
+                (M, N_part), ret[i], f, process_param.((x), dev_id)...)
+        end
 
         @roc groupsize=threads gridsize=(1, 1) _multi_reduce_kernel_amdgpu_MN(
             blocks, ret[i], rret[i])
