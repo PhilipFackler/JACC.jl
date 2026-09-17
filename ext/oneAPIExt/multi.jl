@@ -41,9 +41,7 @@ JACC.to_host(x::MultiArray) = convert(Base.Array, x)
 
 JACC.Multi.multi_array_type(::oneAPIBackend) = MultiArray
 
-# FIXME:
-#   - what about ghost elements
-function Base.convert(::Type{Base.Array}, x::MultiArray{T, 1}) where {T}
+function Base.convert(::Type{Base.Array}, x::MultiArray{T, 1, NG}) where {T, NG}
     oneAPI.device!(1)
     ndev = ndevices()
     ret = Base.Array{T, 1}(undef, x.orig_size)
@@ -51,17 +49,19 @@ function Base.convert(::Type{Base.Array}, x::MultiArray{T, 1}) where {T}
     lastlen = x.orig_size - ((ndev - 1) * partlen)
     for i in 1:ndev
         oneAPI.device!(i)
-        if i == ndev
-            copyto!(ret, (((i - 1) * partlen) + 1), x.a2[i], 1, lastlen)
-        else
+        if i == 1
             copyto!(ret, (((i - 1) * partlen) + 1), x.a2[i], 1, partlen)
+        elseif i == ndev
+            copyto!(ret, (((i - 1) * partlen) + 1), x.a2[i], 1 + NG, lastlen)
+        else
+            copyto!(ret, (((i - 1) * partlen) + 1), x.a2[i], 1 + NG, partlen)
         end
     end
     oneAPI.device!(1)
     return ret
 end
 
-function Base.convert(::Type{Base.Array}, x::MultiArray{T, 2}) where {T}
+function Base.convert(::Type{Base.Array}, x::MultiArray{T, 2, NG}) where {T, NG}
     oneAPI.device!(1)
     ndev = ndevices()
     ret = Base.Array{T, 2}(undef, x.orig_size)
@@ -69,25 +69,35 @@ function Base.convert(::Type{Base.Array}, x::MultiArray{T, 2}) where {T}
     lastlen = x.orig_size[2] - ((ndev - 1) * partlen)
     for i in 1:ndev
         oneAPI.device!(i)
-        if i == ndev
+        if i == 1
             copyto!(
                 ret,
-                CartesianIndices(
-                    (1:size(x.a2[i], 1),
-                    (((i - 1) * partlen) + 1):(i * lastlen))
-                ),
+                CartesianIndices((
+                    1:size(x.a2[i], 1),
+                    (((i - 1) * partlen) + 1):(i * partlen)
+                )),
                 x.a2[i],
-                CartesianIndices((1:size(x.a2[i], 1), 1:lastlen))
+                CartesianIndices((1:size(x.a2[i], 1), 1:partlen))
+            )
+        elseif i == ndev
+            copyto!(
+                ret,
+                CartesianIndices((
+                    1:size(x.a2[i], 1),
+                    (((i - 1) * partlen) + 1):(i * lastlen)
+                )),
+                x.a2[i],
+                CartesianIndices((1:size(x.a2[i], 1), (1 + NG):(lastlen + NG)))
             )
         else
             copyto!(
                 ret,
-                CartesianIndices(
-                    (1:size(x.a2[i], 1),
-                    (((i - 1) * partlen) + 1):(i * partlen))
-                ),
+                CartesianIndices((
+                    1:size(x.a2[i], 1),
+                    (((i - 1) * partlen) + 1):(i * partlen)
+                )),
                 x.a2[i],
-                CartesianIndices(x.a2[i])
+                CartesianIndices((1:size(x.a2[i], 1), (1 + NG):(partlen + NG)))
             )
         end
     end
@@ -178,7 +188,7 @@ function make_multi_array(x::Base.Matrix{T}, ghost_dims) where {T}
     end
 
     oneAPI.device!(1)
-    return MultiArray{T, 2, ng}(devparts, array_ret, size(x))
+    return MultiArray{T, 2, ng}(devparts, parts, size(x))
 end
 
 function JACC.Multi.array(::oneAPIBackend, x::Base.Array; ghost_dims)
@@ -307,7 +317,7 @@ function JACC.Multi.copy!(::oneAPIBackend, x::MultiArray, y::MultiArray)
             # "gcopytoarray"
             for i in 1:ndev
                 oneAPI.device!(i)
-                size = length(y.a2[i])
+                size = length(x.a2[i])
                 threads = min(size, numThreads)
                 blocks = cld(size, threads)
                 @oneapi items=threads groups=blocks _multi_copy_ghosttoarray(
@@ -317,7 +327,7 @@ function JACC.Multi.copy!(::oneAPIBackend, x::MultiArray, y::MultiArray)
             # "copytogarray"
             for i in 1:ndev
                 oneAPI.device!(i)
-                size = length(x.a2[i])
+                size = length(y.a2[i])
                 threads = min(size, numThreads)
                 blocks = cld(size, threads)
                 @oneapi items=threads groups=blocks _multi_copy_arraytoghost(
@@ -497,30 +507,16 @@ end
 function _multi_copy_ghosttoarray(x::ArrayPart, y::ArrayPart, ndev::Integer)
     #x is the array and y is the ghost array
     i = get_global_id()
-    dev_id = device_id(x)
-    len = length(y)
-    if dev_id == 1 && i < len
-        @inbounds x[i] = y[i]
-    elseif dev_id == ndev && i > 1
-        @inbounds x[i - 1] = y[i]
-    elseif i > 1 && i < len
-        @inbounds x[i - 1] = y[i]
-    end
+    id = JACC.Multi.ghost_shift(oneAPIBackend(), i, y)
+    x[i] = y[id]
     return nothing
 end
 
 function _multi_copy_arraytoghost(x::ArrayPart, y::ArrayPart, ndev::Integer)
     #x is the ghost array and y is the array
     i = get_global_id()
-    dev_id = device_id(x)
-    len = length(x)
-    if dev_id == 1 && i < len
-        @inbounds x[i] = y[i]
-    elseif dev_id == ndev && i < len
-        @inbounds x[i + 1] = y[i]
-    elseif i > 1 && i < len
-        @inbounds x[i] = y[i]
-    end
+    id = JACC.Multi.ghost_shift(oneAPIBackend(), i, x)
+    x[id] = y[i]
     return nothing
 end
 

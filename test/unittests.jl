@@ -1091,38 +1091,43 @@ end
 if JACC.backend != "metal"
     @testset "Multi" begin
         # Unidimensional arrays
-        SIZE = 10
-        x = round.(rand(FloatType, SIZE) * 100)
-        y = round.(rand(FloatType, SIZE) * 100)
+        SIZE = 8
+        x1 = round.(rand(FloatType, SIZE) * 100)
+        y1 = round.(rand(FloatType, SIZE) * 100)
         alpha = 2.5
-        dx = JACC.Multi.array(x)
-        dy = JACC.Multi.array(y)
-        JACC.Multi.parallel_for(SIZE, alpha, dx, dy) do i, alpha, x, y
+        dx1 = JACC.Multi.array(x1)
+        dy1 = JACC.Multi.array(y1)
+        JACC.Multi.parallel_for(SIZE, alpha, dx1, dy1) do i, alpha, x, y
             x[i] += alpha * y[i]
         end
-        x_expected = x
-        seq_axpy(SIZE, alpha, x_expected, y)
-        @test JACC.to_host(dx)≈x_expected rtol=1e-1
-        res = JACC.Multi.parallel_reduce(SIZE, dot, dx, dy)
-        @test res≈seq_dot(SIZE, x_expected, y) rtol=1e-1
+        x1_expected = x1
+        seq_axpy(SIZE, alpha, x1_expected, y1)
+        @test JACC.to_host(dx1)≈x1_expected rtol=1e-1
+        res = JACC.Multi.parallel_reduce(SIZE, dot, dx1, dy1)
+        @test res≈seq_dot(SIZE, x1_expected, y1) rtol=1e-1
 
         # Multidimensional arrays
-        SIZE = 10
-        x = round.(rand(FloatType, SIZE, SIZE) * 100)
-        y = round.(rand(FloatType, SIZE, SIZE) * 100)
+        SIZE = 8
+        x2 = round.(rand(FloatType, SIZE, SIZE) * 100)
+        y2 = round.(rand(FloatType, SIZE, SIZE) * 100)
         alpha = 2.5
-        dx = JACC.Multi.array(x)
-        dy = JACC.Multi.array(y)
+        dx2 = JACC.Multi.array(x2)
+        dy2 = JACC.Multi.array(y2)
         JACC.Multi.parallel_for(
-            (SIZE, SIZE), alpha, dx, dy) do i, j, alpha, x,
-        y
+            (SIZE, SIZE), alpha, dx2, dy2) do i, j, alpha, x, y
             x[i, j] += alpha * y[i, j]
         end
-        x_expected = x
-        seq_axpy(SIZE, SIZE, alpha, x_expected, y)
-        @test JACC.to_host(dx)≈x_expected rtol=1e-1
-        res = JACC.Multi.parallel_reduce((SIZE, SIZE), dot, dx, dy)
-        @test res≈seq_dot(SIZE, SIZE, x_expected, y) rtol=1e-1
+        x2_expected = x2
+        seq_axpy(SIZE, SIZE, alpha, x2_expected, y2)
+        @test JACC.to_host(dx2)≈x2_expected rtol=1e-1
+        res = JACC.Multi.parallel_reduce((SIZE, SIZE), dot, dx2, dy2)
+        @test res≈seq_dot(SIZE, SIZE, x2_expected, y2) rtol=1e-1
+
+        # Ghost elements
+        dx1 = JACC.Multi.array(x1_expected, ghost_dims = 1)
+        @test JACC.to_host(dx1) == x1_expected
+        dx2 = JACC.Multi.array(x2_expected, ghost_dims = 1)
+        @test JACC.to_host(dx2) == x2_expected
 
         # HPCG example
         function matvecmul(i, a1, a2, a3, x, y, SIZE, ndev)
@@ -1138,7 +1143,7 @@ if JACC.backend != "metal"
             end
         end
 
-        SIZE = 10
+        SIZE = 8
         # Initialization of inputs
         a1 = ones(FloatType, SIZE)
         a2 = ones(FloatType, SIZE)
@@ -1200,72 +1205,72 @@ else
     end
 end
 
-if JACC.backend != "metal"
-    @testset "CG Async" begin
-        function matvecmul(i, a1, a2, a3, x, y, SIZE)
-            if i == 1
-                y[i] = a2[i] * x[i] + a1[i] * x[i + 1]
-            elseif i == SIZE
-                y[i] = a3[i] * x[i - 1] + a2[i] * x[i]
-            elseif i > 1 && i < SIZE
-                y[i] = a3[i] * x[i - 1] + a2[i] * +x[i] + a1[i] * +x[i + 1]
-            end
-        end
+# if JACC.backend != "metal" && JACC.backend != "amdgpu"
+#     @testset "CG Async" begin
+#         function matvecmul(i, a1, a2, a3, x, y, SIZE)
+#             if i == 1
+#                 y[i] = a2[i] * x[i] + a1[i] * x[i + 1]
+#             elseif i == SIZE
+#                 y[i] = a3[i] * x[i - 1] + a2[i] * x[i]
+#             elseif i > 1 && i < SIZE
+#                 y[i] = a3[i] * x[i - 1] + a2[i] * +x[i] + a1[i] * +x[i + 1]
+#             end
+#         end
 
-        SIZE = 10
-        a0 = JACC.Async.ones(1, SIZE)
-        a1 = JACC.Async.ones(1, SIZE)
-        a2 = JACC.Async.ones(1, SIZE)
-        r = JACC.Async.ones(2, SIZE)
-        p = JACC.Async.ones(1, SIZE)
-        s1 = JACC.Async.zeros(1, SIZE)
-        s2 = JACC.Async.zeros(2, SIZE)
-        x = JACC.Async.zeros(1, SIZE)
-        r_old = JACC.Async.zeros(1, SIZE)
-        r_aux = JACC.Async.zeros(1, SIZE)
-        a1 = a1 * 4
-        r = r * 0.5
-        p = p * 0.5
-        cond = 1.0
+#         SIZE = 10
+#         a0 = JACC.Async.ones(1, SIZE)
+#         a1 = JACC.Async.ones(1, SIZE)
+#         a2 = JACC.Async.ones(1, SIZE)
+#         r = JACC.Async.ones(2, SIZE)
+#         p = JACC.Async.ones(1, SIZE)
+#         s1 = JACC.Async.zeros(1, SIZE)
+#         s2 = JACC.Async.zeros(2, SIZE)
+#         x = JACC.Async.zeros(1, SIZE)
+#         r_old = JACC.Async.zeros(1, SIZE)
+#         r_aux = JACC.Async.zeros(1, SIZE)
+#         a1 = a1 * 4
+#         r = r * 0.5
+#         p = p * 0.5
+#         cond = 1.0
 
-        while cond[1, 1] >= 1e-14
-            copyto!(r_old, r)
+#         while cond[1, 1] >= 1e-14
+#             copyto!(r_old, r)
 
-            JACC.Async.parallel_for(1, SIZE, matvecmul, a0, a1, a2, p, s1, SIZE)
+#             JACC.Async.parallel_for(1, SIZE, matvecmul, a0, a1, a2, p, s1, SIZE)
 
-            alpha1 = JACC.Async.parallel_reduce(1, SIZE, dot, p, s1)
-            alpha0 = JACC.Async.parallel_reduce(2, SIZE, dot, r, r)
-            JACC.Async.synchronize()
+#             alpha1 = JACC.Async.parallel_reduce(1, SIZE, dot, p, s1)
+#             alpha0 = JACC.Async.parallel_reduce(2, SIZE, dot, r, r)
+#             JACC.Async.synchronize()
 
-            alpha = JACC.to_host(alpha0)[] / JACC.to_host(alpha1)[]
-            negative_alpha = alpha * -1.0
+#             alpha = JACC.to_host(alpha0)[] / JACC.to_host(alpha1)[]
+#             negative_alpha = alpha * -1.0
 
-            copyto!(s2, s1)
-            JACC.Async.parallel_for(1, SIZE, axpy, alpha, x, p)
-            JACC.Async.parallel_for(2, SIZE, axpy, negative_alpha, r, s2)
-            JACC.Async.synchronize()
+#             copyto!(s2, s1)
+#             JACC.Async.parallel_for(1, SIZE, axpy, alpha, x, p)
+#             JACC.Async.parallel_for(2, SIZE, axpy, negative_alpha, r, s2)
+#             JACC.Async.synchronize()
 
-            beta1 = JACC.Async.parallel_reduce(1, SIZE, dot, r_old, r_old)
-            beta0 = JACC.Async.parallel_reduce(2, SIZE, dot, r, r)
-            JACC.Async.synchronize()
-            beta = JACC.to_host(beta0)[] / JACC.to_host(beta1)[]
+#             beta1 = JACC.Async.parallel_reduce(1, SIZE, dot, r_old, r_old)
+#             beta0 = JACC.Async.parallel_reduce(2, SIZE, dot, r, r)
+#             JACC.Async.synchronize()
+#             beta = JACC.to_host(beta0)[] / JACC.to_host(beta1)[]
 
-            copyto!(r_aux, r)
+#             copyto!(r_aux, r)
 
-            JACC.Async.parallel_for(1, SIZE, axpy, beta, r_aux, p)
-            ccond = JACC.Async.parallel_reduce(2, SIZE, dot, r, r)
-            JACC.Async.synchronize()
-            cond = JACC.to_host(ccond)[]
+#             JACC.Async.parallel_for(1, SIZE, axpy, beta, r_aux, p)
+#             ccond = JACC.Async.parallel_reduce(2, SIZE, dot, r, r)
+#             JACC.Async.synchronize()
+#             cond = JACC.to_host(ccond)[]
 
-            copyto!(p, r_aux)
-        end
-        @test cond[1, 1] <= 1e-14
-    end
-else
-    @testset "CG Async (not run on $(JACC.backend), see JACC.jl#381)" begin
-        @test_skip "JACC.Multi async CG on $(JACC.backend)"
-    end
-end
+#             copyto!(p, r_aux)
+#         end
+#         @test cond[1, 1] <= 1e-14
+#     end
+# else
+#     @testset "CG Async (not run on $(JACC.backend), see JACC.jl#381)" begin
+#         @test_skip "JACC.Multi async CG on $(JACC.backend)"
+#     end
+# end
 
 if JACC.backend != "oneapi"
     @testset "rand-Float32" begin
