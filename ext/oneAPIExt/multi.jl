@@ -42,7 +42,6 @@ JACC.to_host(x::MultiArray) = convert(Base.Array, x)
 JACC.Multi.multi_array_type(::oneAPIBackend) = MultiArray
 
 function Base.convert(::Type{Base.Array}, x::MultiArray{T, 1, NG}) where {T, NG}
-    oneAPI.device!(1)
     ndev = ndevices()
     ret = Base.Array{T, 1}(undef, x.orig_size)
     partlen = cld(x.orig_size, ndev)
@@ -62,11 +61,11 @@ function Base.convert(::Type{Base.Array}, x::MultiArray{T, 1, NG}) where {T, NG}
 end
 
 function Base.convert(::Type{Base.Array}, x::MultiArray{T, 2, NG}) where {T, NG}
-    oneAPI.device!(1)
     ndev = ndevices()
     ret = Base.Array{T, 2}(undef, x.orig_size)
-    partlen = cld(x.orig_size[2], ndev)
-    lastlen = x.orig_size[2] - ((ndev - 1) * partlen)
+    total_length = x.orig_size[2]
+    partlen = cld(total_length, ndev)
+    lastlen = total_length - ((ndev - 1) * partlen)
     for i in 1:ndev
         oneAPI.device!(i)
         if i == 1
@@ -84,7 +83,7 @@ function Base.convert(::Type{Base.Array}, x::MultiArray{T, 2, NG}) where {T, NG}
                 ret,
                 CartesianIndices((
                     1:size(x.a2[i], 1),
-                    (((i - 1) * partlen) + 1):(i * lastlen)
+                    (((i - 1) * partlen) + 1):total_length
                 )),
                 x.a2[i],
                 CartesianIndices((1:size(x.a2[i], 1), (1 + NG):(lastlen + NG)))
@@ -107,7 +106,6 @@ end
 
 function make_multi_array(x::Base.Vector{T}) where {T}
     ndev = ndevices()
-    oneAPI.device!(1)
     total_length = length(x)
     partlen = cld(total_length, ndev)
     parts = Vector{oneVector{T}}(undef, ndev)
@@ -115,7 +113,11 @@ function make_multi_array(x::Base.Vector{T}) where {T}
 
     for i in 1:ndev
         oneAPI.device!(i)
-        parts[i] = oneArray(x[(((i - 1) * partlen) + 1):(i * partlen)])
+        if i == ndev
+            parts[i] = oneArray(x[(((i - 1) * partlen) + 1):total_length])
+        else
+            parts[i] = oneArray(x[(((i - 1) * partlen) + 1):(i * partlen)])
+        end
         devparts[i] = ArrayPart(kernel_convert(parts[i]), i, ndev, 0)
     end
 
@@ -125,7 +127,6 @@ end
 
 function make_multi_array(x::Base.Vector{T}, ghost_dims) where {T}
     ndev = ndevices()
-    oneAPI.device!(1)
     total_length = length(x)
     partlen = cld(total_length, ndev)
     parts = Vector{oneVector{T}}(undef, ndev)
@@ -137,7 +138,7 @@ function make_multi_array(x::Base.Vector{T}, ghost_dims) where {T}
         if i == 1
             parts[i] = oneArray(x[((i - 1) * partlen + 1):(i * partlen + ng)])
         elseif i == ndev
-            parts[i] = oneArray(x[((i - 1) * partlen + 1 - ng):(i * partlen)])
+            parts[i] = oneArray(x[((i - 1) * partlen + 1 - ng):total_length])
         else
             parts[i] = oneArray(x[((i - 1) * partlen + 1 - ng):(i * partlen + ng)])
         end
@@ -150,7 +151,6 @@ end
 
 function make_multi_array(x::Base.Matrix{T}) where {T}
     ndev = ndevices()
-    oneAPI.device!(1)
     total_length = size(x, 2)
     partlen = cld(total_length, ndev)
     parts = Vector{oneMatrix{T}}(undef, ndev)
@@ -158,7 +158,11 @@ function make_multi_array(x::Base.Matrix{T}) where {T}
 
     for i in 1:ndev
         oneAPI.device!(i)
-        parts[i] = oneArray(x[:, (((i - 1) * partlen) + 1):(i * partlen)])
+        if i == ndev
+            parts[i] = oneArray(x[:, (((i - 1) * partlen) + 1):total_length])
+        else
+            parts[i] = oneArray(x[:, (((i - 1) * partlen) + 1):(i * partlen)])
+        end
         devparts[i] = ArrayPart(kernel_convert(parts[i]), i, ndev, 0)
     end
 
@@ -168,7 +172,6 @@ end
 
 function make_multi_array(x::Base.Matrix{T}, ghost_dims) where {T}
     ndev = ndevices()
-    oneAPI.device!(1)
     total_length = size(x, 2)
     partlen = cld(total_length, ndev)
     parts = Vector{oneMatrix{T}}(undef, ndev)
@@ -180,7 +183,7 @@ function make_multi_array(x::Base.Matrix{T}, ghost_dims) where {T}
         if i == 1
             parts[i] = oneArray(x[:, ((i - 1) * partlen + 1):(i * partlen + ng)])
         elseif i == ndev
-            parts[i] = oneArray(x[:, ((i - 1) * partlen + 1 - ng):(i * partlen)])
+            parts[i] = oneArray(x[:, ((i - 1) * partlen + 1 - ng):total_length])
         else
             parts[i] = oneArray(x[:, ((i - 1) * partlen + 1 - ng):(i * partlen + ng)])
         end
@@ -375,21 +378,22 @@ function JACC.Multi.copy!(::oneAPIBackend, x::MultiArray, y::MultiArray)
 end
 
 function JACC.Multi.parallel_for(::oneAPIBackend, N::Integer, f::Callable, x...)
-    oneAPI.device!(1)
     ndev = ndevices()
-    N_multi = cld(N, ndev)
-    # numThreads = 256
-    # threads = min(N_multi, numThreads)
-    # blocks = cld(N_multi, threads)
+    N_part = cld(N, ndev)
+    N_last = N - ((ndev - 1) * N_part)
 
     for i in 1:ndev
         oneAPI.device!(i)
         dev_id = i
-        JACC.parallel_for(
-            JACC.LaunchSpec{oneAPIBackend}(; sync = false), N_multi,
-            f, process_param.((x), dev_id)...)
-        # @oneapi items=threads groups=blocks _multi_parallel_for_amdgpu(
-        #     N_multi, f, process_param.((x), dev_id)...)
+        if i == ndev
+            JACC.parallel_for(
+                JACC.LaunchSpec{oneAPIBackend}(; sync = false), N_last,
+                f, process_param.((x), dev_id)...)
+        else
+            JACC.parallel_for(
+                JACC.LaunchSpec{oneAPIBackend}(; sync = false), N_part,
+                f, process_param.((x), dev_id)...)
+        end
     end
 
     for i in 1:ndev
@@ -403,13 +407,19 @@ end
 function JACC.Multi.parallel_for(
         ::oneAPIBackend, (M, N)::NTuple{2, Integer}, f::Callable, x...)
     ndev = ndevices()
-    N_multi = ceil(Int, N / ndev)
+    N_part = ceil(Int, N / ndev)
+    N_last = N - ((ndev - 1) * N_part)
 
     for i in 1:ndev
         oneAPI.device!(i)
         dev_id = i
-        JACC.parallel_for(JACC.LaunchSpec{oneAPIBackend}(; sync = false),
-            (M, N_multi), f, process_param.((x), dev_id)...)
+        if i == ndev
+            JACC.parallel_for(JACC.LaunchSpec{oneAPIBackend}(; sync = false),
+                (M, N_last), f, process_param.((x), dev_id)...)
+        else
+            JACC.parallel_for(JACC.LaunchSpec{oneAPIBackend}(; sync = false),
+                (M, N_part), f, process_param.((x), dev_id)...)
+        end
     end
 
     for i in 1:ndev
@@ -422,17 +432,21 @@ end
 
 function JACC.Multi.parallel_reduce(
         ::oneAPIBackend, N::Integer, f::Callable, x...)
-    oneAPI.device!(1)
     ndev = length(oneAPI.devices())
     rret = Vector{Any}(undef, ndev)
-    N_multi = cld(N, ndev)
+    N_part = cld(N, ndev)
+    N_last = N - ((ndev - 1) * N_part)
 
     for i in 1:ndev
         oneAPI.device!(i)
         dev_id = i
+        part_range = N_part
+        if i == ndev
+            part_range = N_last
+        end
         reducer = JACC.reducer(;
             backend = oneAPIBackend(), type = JACC.default_float(),
-            range = N_multi, op = +, sync = false)
+            range = part_range, op = +, sync = false)
         reducer(f, process_param.((x), dev_id)...)
         rret[i] = reducer.workspace.ret
     end
@@ -457,15 +471,19 @@ function JACC.Multi.parallel_reduce(
         ::oneAPIBackend, (M, N)::NTuple{2, Integer}, f::Callable, x...)
     ndev = ndevices()
     rret = Vector{Any}(undef, ndev)
-    N_multi = cld(N, ndev)
-    dims_multi = (M, N_multi)
+    N_part = cld(N, ndev)
+    N_last = N - ((ndev - 1) * N_part)
 
     for i in 1:ndev
         oneAPI.device!(i)
         dev_id = i
+        part_range = N_part
+        if i == ndev
+            part_range = N_last
+        end
         reducer = JACC.reducer(;
             backend = oneAPIBackend(), type = JACC.default_float(),
-            range = dims_multi, op = +, sync = false)
+            range = (M, part_range), op = +, sync = false)
         reducer(f, process_param.((x), dev_id)...)
         rret[i] = reducer.workspace.ret
     end
