@@ -58,7 +58,7 @@ Roadmap:
 
 - JACC.BLAS for kernel-level linear algebra routines.
 - Expand JACC's ecosystem including scientific applications, see [JACC-Applications](https://github.com/JuliaORNL/JACC-applications)
-- New functionality impacting scientific users.
+- New functionality impacting scientific users, please open an issue.
 
 ## Quick start
 
