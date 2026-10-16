@@ -4,21 +4,22 @@ using JACC, AMDGPU
 using AMDGPU: HIP
 
 const AMDGPUBackend = ROCBackend
+const AMDGPUTag = Type{AMDGPUBackend}
+JACC.get_backend(::Val{:amdgpu}) = AMDGPUBackend()
+JACC.get_backend_type(::Val{:amdgpu}) = AMDGPUBackend
 
 include("array.jl")
 include("multi.jl")
 include("async.jl")
 include("experimental/experimental.jl")
 
-JACC.get_backend(::Val{:amdgpu}) = AMDGPUBackend()
-
 default_stream() = AMDGPU.stream()
 
-JACC.default_stream(::AMDGPUBackend) = default_stream()
+JACC.default_stream(::AMDGPUTag) = default_stream()
 
-JACC.create_stream(::AMDGPUBackend) = AMDGPU.HIPStream()
+JACC.create_stream(::AMDGPUTag) = AMDGPU.HIPStream()
 
-function JACC.synchronize(::AMDGPUBackend; stream = default_stream())
+function JACC.synchronize(::AMDGPUTag; stream = default_stream())
     AMDGPU.synchronize(stream)
 end
 
@@ -52,7 +53,7 @@ end
     return (p_kernel, AMDGPU.launch_configuration(p_kernel).groupsize)
 end
 
-function JACC.parallel_for(f, ::AMDGPUBackend, N::Integer, x...; name = nothing)
+function JACC.parallel_for(f, ::AMDGPUTag, N::Integer, x...; name = nothing)
     kargs = _kernel_args(N, f, x...)
     kernel, shmem_size = _kernel_maxshmem(_parallel_for_amdgpu, kargs, name)
     config = AMDGPU.launch_configuration(kernel; shmem = shmem_size)
@@ -141,7 +142,7 @@ function parallel_for(
 end
 
 function JACC.parallel_for(
-        f, ::AMDGPUBackend, (M, N)::NTuple{2, Integer}, x...; name = nothing)
+        f, ::AMDGPUTag, (M, N)::NTuple{2, Integer}, x...; name = nothing)
     dev = AMDGPU.device()
     props = AMDGPU.HIP.properties(dev)
     maxBlocks = (x = props.maxGridSize[1], y = props.maxGridSize[2])
@@ -235,7 +236,7 @@ function JACC.parallel_for(f, spec::LaunchSpec{AMDGPUBackend},
 end
 
 function JACC.parallel_for(
-        f, ::AMDGPUBackend, (L, M, N)::NTuple{3, Integer}, x...; name = nothing)
+        f, ::AMDGPUTag, (L, M, N)::NTuple{3, Integer}, x...; name = nothing)
     kargs = _kernel_args((L, M, N), f, x...)
     kernel, shmem_size = _kernel_maxshmem(_parallel_for_amdgpu_LMN, kargs, name)
     numThreads = 32
@@ -283,12 +284,12 @@ mutable struct AMDGPUReduceWorkspace{T, TP <: JACC.WkProp} <:
     ret::AMDGPU.ROCArray{T}
 end
 
-function JACC.reduce_workspace(::AMDGPUBackend, init::T) where {T}
+function JACC.reduce_workspace(::AMDGPUTag, init::T) where {T}
     AMDGPUReduceWorkspace{T, JACC.Managed}(
         AMDGPU.ROCArray{T}(undef, 0), AMDGPU.ROCArray([init]))
 end
 
-function JACC.reduce_workspace(::AMDGPUBackend, tmp::AMDGPU.ROCArray{T},
+function JACC.reduce_workspace(::AMDGPUTag, tmp::AMDGPU.ROCArray{T},
         init::AMDGPU.ROCArray{T}) where {T}
     AMDGPUReduceWorkspace{T, JACC.Unmanaged}(tmp, init)
 end
@@ -351,7 +352,7 @@ function JACC._parallel_reduce!(reducer::JACC.ParallelReduce{AMDGPUBackend},
     return nothing
 end
 
-function JACC.parallel_reduce(f, ::AMDGPUBackend, N::Integer, x...; op, init,
+function JACC.parallel_reduce(f, ::AMDGPUTag, N::Integer, x...; op, init,
         name = nothing)
     ret_inst = AMDGPU.ROCArray{typeof(init)}(undef, 0)
 
@@ -419,7 +420,7 @@ function JACC._parallel_reduce!(reducer::JACC.ParallelReduce{AMDGPUBackend},
     return nothing
 end
 
-function JACC.parallel_reduce(f, ::AMDGPUBackend, (M, N)::NTuple{2, Integer},
+function JACC.parallel_reduce(f, ::AMDGPUTag, (M, N)::NTuple{2, Integer},
         x...; op, init, name = nothing)
     numThreads = 16
     Mthreads = numThreads
@@ -447,7 +448,7 @@ function JACC.parallel_reduce(f, ::AMDGPUBackend, (M, N)::NTuple{2, Integer},
     return Base.Array(rret)[]
 end
 
-@inline function JACC.parallel_reduce(f, ::AMDGPUBackend,
+@inline function JACC.parallel_reduce(f, ::AMDGPUTag,
         dims::NTuple{N, Integer}, x...; op, init, kw...) where {N}
     ids = CartesianIndices(dims)
     return JACC.parallel_reduce(JACC.ReduceKernel1DND{typeof(init)}(),
@@ -598,7 +599,7 @@ function _reduce_kernel_amdgpu_MN((M, N), op, red, init, ret)
     return nothing
 end
 
-function JACC.shared(::AMDGPUBackend, x::AbstractVector)
+function JACC.shared(::AMDGPUTag, x::AbstractVector)
     len = length(x)
     shmem = @ROCDynamicLocalArray(eltype(x), len)
     # 1D kernel or 2D kernel at y == 1 (to avoid concurrent writes)
@@ -611,7 +612,7 @@ function JACC.shared(::AMDGPUBackend, x::AbstractVector)
     return shmem
 end
 
-function JACC.shared(::AMDGPUBackend, x::AbstractMatrix)
+function JACC.shared(::AMDGPUTag, x::AbstractMatrix)
     len = length(x)
     shmem = @ROCDynamicLocalArray(eltype(x), size(x))
     num_threads = workgroupDim().x * workgroupDim().y
@@ -634,7 +635,7 @@ function JACC.shared(::AMDGPUBackend, x::AbstractMatrix)
     return shmem
 end
 
-function JACC.shared(::AMDGPUBackend, x::AbstractArray)
+function JACC.shared(::AMDGPUTag, x::AbstractArray)
     len = length(x)
     shmem = @ROCDynamicLocalArray(eltype(x), size(x))
     num_threads = workgroupDim().x * workgroupDim().y
@@ -681,9 +682,9 @@ function JACC.shared(::AMDGPUBackend, x::AbstractArray)
 end
 # COV_EXCL_STOP
 
-JACC.sync_workgroup(::AMDGPUBackend) = AMDGPU.sync_workgroup()
+JACC.sync_workgroup(::AMDGPUTag) = AMDGPU.sync_workgroup()
 
-JACC.array_type(::AMDGPUBackend) = AMDGPU.ROCArray
+JACC.array_type(::AMDGPUTag) = AMDGPU.ROCArray
 
 function _compute_array_storage()
     preferences = get(
@@ -715,7 +716,7 @@ function _array_storage()
     return value
 end
 
-function JACC._array(::AMDGPUBackend, x::AbstractArray)
+function JACC._array(::AMDGPUTag, x::AbstractArray)
     if _array_storage() == "host"
         # hipHostMalloc-backed pinned memory: zero-copy CPU+GPU access on
         # APUs, fast DMA on discrete GPUs.
@@ -724,8 +725,8 @@ function JACC._array(::AMDGPUBackend, x::AbstractArray)
     return AMDGPU.ROCArray{eltype(x), ndims(x), AMDGPU.Mem.HIPBuffer}(x)
 end
 
-JACC._array(::AMDGPUBackend, x::AMDGPU.ROCArray) = x
-JACC.array(backend::AMDGPUBackend, x::AbstractArray) = JACC._array(backend, x)
-JACC.array(::AMDGPUBackend, x::AMDGPU.ROCArray) = x
+JACC._array(::AMDGPUTag, x::AMDGPU.ROCArray) = x
+JACC.array(::AMDGPUTag, x::AbstractArray) = JACC._array(AMDGPUBackend, x)
+JACC.array(::AMDGPUTag, x::AMDGPU.ROCArray) = x
 
 end # module AMDGPUExt

@@ -1,12 +1,12 @@
 
-function JACC.zeros(::oneAPIBackend, ::Type{T}, dims...) where {T}
+function JACC.zeros(::oneAPITag, ::Type{T}, dims...) where {T}
     return oneAPI.zeros(T, dims...)
 end
 
-function JACC.ones(::oneAPIBackend, ::Type{T}, dims...) where {T}
+function JACC.ones(::oneAPITag, ::Type{T}, dims...) where {T}
     return oneAPI.ones(T, dims...)
 end
 
-function JACC.fill(::oneAPIBackend, value, dims...)
+function JACC.fill(::oneAPITag, value, dims...)
     return oneAPI.fill(value, dims...)
 end

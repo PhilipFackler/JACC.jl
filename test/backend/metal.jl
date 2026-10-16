@@ -29,8 +29,8 @@ end
     x = JACC.array(h)
     @test typeof(x) == MtlArray{Float32, 1, Metal.PrivateStorage}
     @test JACC.array(x) === x
-    @test JACC.array(JACC.default_backend(), x) === x
-    @test JACC.array(JACC.default_backend(), h) isa
+    @test JACC.array(JACC.default_backend_type(), x) === x
+    @test JACC.array(JACC.default_backend_type(), h) isa
           MtlArray{Float32, 1, Metal.PrivateStorage}
     try
         @suppress JACC.set_backend("Metal"; storage = :shared)
@@ -43,8 +43,8 @@ end
         @test Metal.is_shared(xs)
         @test Array(xs) == h
         @test JACC.array(xs) === xs
-        @test JACC.array(JACC.default_backend(), xs) === xs
-        @test JACC.array(JACC.default_backend(), h) isa
+        @test JACC.array(JACC.default_backend_type(), xs) === xs
+        @test JACC.array(JACC.default_backend_type(), h) isa
               MtlArray{Float32, 1, Metal.SharedStorage}
         h2 = ones(Float32, N, N)
         xs2 = JACC.array(h2)

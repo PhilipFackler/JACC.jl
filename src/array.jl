@@ -1,5 +1,5 @@
 
-array_type() = array_type(default_backend())
+array_type() = array_type(default_backend_type())
 
 """
     JACC.to_device(x::AbstractArray)
@@ -80,7 +80,7 @@ Backend-specific allocation policy is configured outside portable code. For
 example, `set_backend("Metal"; storage = :shared)` makes host-array copies use
 Metal unified memory for that project. Host-array copies default to device-private.
 """
-array(x::AbstractArray) = _array(default_backend(), x)
+array(x::AbstractArray) = _array(default_backend_type(), x)
 _array(::Any, x::AbstractArray) = to_device(x)
 
 array(::Type{T}, dims) where {T} = array_type(){T, length(dims)}(undef, dims)
@@ -94,14 +94,14 @@ array(; type = default_float(), dims = 0) = array(type, dims)
 
 Create a new array on the device filled with zeros.
 """
-zeros(::Type{T}, dims...) where {T} = zeros(default_backend(), T, dims...)
+zeros(::Type{T}, dims...) where {T} = zeros(default_backend_type(), T, dims...)
 
 """
     JACC.ones([T=default_float()], dims...)
 
 Create a new array on the device filled with ones.
 """
-ones(::Type{T}, dims...) where {T} = ones(default_backend(), T, dims...)
+ones(::Type{T}, dims...) where {T} = ones(default_backend_type(), T, dims...)
 
 zeros(dims...) = zeros(default_float(), dims...)
 ones(dims...) = ones(default_float(), dims...)
@@ -111,4 +111,4 @@ ones(dims...) = ones(default_float(), dims...)
 
 Create a new array on the device filled with a specified value.
 """
-fill(value, dims...) = fill(default_backend(), value, dims...)
+fill(value, dims...) = fill(default_backend_type(), value, dims...)
