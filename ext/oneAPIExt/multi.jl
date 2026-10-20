@@ -2,10 +2,11 @@ module Multi
 
 import Base: Callable
 using JACC, oneAPI
+using oneAPIExt: oneAPITag
 
 @inline ndevices() = length(oneAPI.devices())
 
-JACC.Multi.ndev(::oneAPIBackend) = ndevices()
+JACC.Multi.ndev(::oneAPITag) = ndevices()
 
 struct ArrayPart{T, N}
     a::oneAPI.oneDeviceArray{T, N, oneAPI.AS.CrossWorkgroup}
@@ -23,7 +24,7 @@ end
 @inline device_id(p::ArrayPart) = p.dev_id
 @inline ghost_dims(p::ArrayPart) = p.ghost_dims
 
-@inline JACC.Multi.device_id(::oneAPIBackend, p::ArrayPart) = p.dev_id
+@inline JACC.Multi.device_id(::oneAPITag, p::ArrayPart) = p.dev_id
 
 struct MultiArray{T, N, NG}
     a1::Vector{ArrayPart{T, N}}
@@ -34,12 +35,12 @@ end
 JACC.to_host(x::MultiArray) = convert(Base.Array, x)
 
 @inline ghost_dims(x::MultiArray{T, N, NG}) where {T, N, NG} = NG
-@inline JACC.Multi.part_length(::oneAPIBackend, x::MultiArray) = size(x.a2[1])[end]
+@inline JACC.Multi.part_length(::oneAPITag, x::MultiArray) = size(x.a2[1])[end]
 
 @inline process_param(x, dev_id) = x
 @inline process_param(x::MultiArray, dev_id) = x.a1[dev_id]
 
-JACC.Multi.multi_array_type(::oneAPIBackend) = MultiArray
+JACC.Multi.multi_array_type(::oneAPITag) = MultiArray
 
 function Base.convert(::Type{Base.Array}, x::MultiArray{T, 1, NG}) where {T, NG}
     ndev = ndevices()
@@ -194,7 +195,7 @@ function make_multi_array(x::Base.Matrix{T}, ghost_dims) where {T}
     return MultiArray{T, 2, ng}(devparts, parts, size(x))
 end
 
-function JACC.Multi.array(::oneAPIBackend, x::Base.Array; ghost_dims)
+function JACC.Multi.array(::oneAPITag, x::Base.Array; ghost_dims)
     if ghost_dims == 0 || ndevices() == 1
         return make_multi_array(x)
     else
@@ -202,7 +203,7 @@ function JACC.Multi.array(::oneAPIBackend, x::Base.Array; ghost_dims)
     end
 end
 
-function JACC.Multi.ghost_shift(::oneAPIBackend, i::Integer, arr::ArrayPart)
+function JACC.Multi.ghost_shift(::oneAPITag, i::Integer, arr::ArrayPart)
     dev_id = device_id(arr)
     if dev_id == 1
         ind = i
@@ -215,7 +216,7 @@ function JACC.Multi.ghost_shift(::oneAPIBackend, i::Integer, arr::ArrayPart)
 end
 
 function JACC.Multi.ghost_shift(
-        ::oneAPIBackend, (i, j)::NTuple{2, Integer}, arr::ArrayPart)
+        ::oneAPITag, (i, j)::NTuple{2, Integer}, arr::ArrayPart)
     ind = (0, 0)
     dev_id = device_id(arr)
     if dev_id == 1
@@ -228,7 +229,7 @@ function JACC.Multi.ghost_shift(
     return ind
 end
 
-function JACC.Multi.sync_ghost_elems!(::oneAPIBackend, arr::MultiArray{
+function JACC.Multi.sync_ghost_elems!(::oneAPITag, arr::MultiArray{
         T, 1}) where {T}
     oneAPI.device!(1)
     ndev = ndevices()
@@ -265,7 +266,7 @@ function JACC.Multi.sync_ghost_elems!(::oneAPIBackend, arr::MultiArray{
     oneAPI.device!(1)
 end
 
-function JACC.Multi.sync_ghost_elems!(::oneAPIBackend, arr::MultiArray{
+function JACC.Multi.sync_ghost_elems!(::oneAPITag, arr::MultiArray{
         T, 2}) where {T}
     oneAPI.device!(1)
     ndev = ndevices()
@@ -310,7 +311,7 @@ function JACC.Multi.sync_ghost_elems!(::oneAPIBackend, arr::MultiArray{
     oneAPI.device!(1)
 end
 
-function JACC.Multi.copy!(::oneAPIBackend, x::MultiArray, y::MultiArray)
+function JACC.Multi.copy!(::oneAPITag, x::MultiArray, y::MultiArray)
     oneAPI.device!(1)
     ndev = ndevices()
 
@@ -377,7 +378,7 @@ function JACC.Multi.copy!(::oneAPIBackend, x::MultiArray, y::MultiArray)
     oneAPI.device!(1)
 end
 
-function JACC.Multi.parallel_for(::oneAPIBackend, N::Integer, f::Callable, x...)
+function JACC.Multi.parallel_for(::oneAPITag, N::Integer, f::Callable, x...)
     ndev = ndevices()
     N_part = cld(N, ndev)
     N_last = N - ((ndev - 1) * N_part)
@@ -405,7 +406,7 @@ function JACC.Multi.parallel_for(::oneAPIBackend, N::Integer, f::Callable, x...)
 end
 
 function JACC.Multi.parallel_for(
-        ::oneAPIBackend, (M, N)::NTuple{2, Integer}, f::Callable, x...)
+        ::oneAPITag, (M, N)::NTuple{2, Integer}, f::Callable, x...)
     ndev = ndevices()
     N_part = ceil(Int, N / ndev)
     N_last = N - ((ndev - 1) * N_part)
@@ -431,7 +432,7 @@ function JACC.Multi.parallel_for(
 end
 
 function JACC.Multi.parallel_reduce(
-        ::oneAPIBackend, N::Integer, f::Callable, x...)
+        ::oneAPITag, N::Integer, f::Callable, x...)
     ndev = length(oneAPI.devices())
     rret = Vector{Any}(undef, ndev)
     N_part = cld(N, ndev)
@@ -445,7 +446,7 @@ function JACC.Multi.parallel_reduce(
             part_range = N_last
         end
         reducer = JACC.reducer(;
-            backend = oneAPIBackend(), type = JACC.default_float(),
+            backend = oneAPIBackend, type = JACC.default_float(),
             range = part_range, op = +, sync = false)
         reducer(f, process_param.((x), dev_id)...)
         rret[i] = reducer.workspace.ret
@@ -468,7 +469,7 @@ function JACC.Multi.parallel_reduce(
 end
 
 function JACC.Multi.parallel_reduce(
-        ::oneAPIBackend, (M, N)::NTuple{2, Integer}, f::Callable, x...)
+        ::oneAPITag, (M, N)::NTuple{2, Integer}, f::Callable, x...)
     ndev = ndevices()
     rret = Vector{Any}(undef, ndev)
     N_part = cld(N, ndev)
@@ -482,7 +483,7 @@ function JACC.Multi.parallel_reduce(
             part_range = N_last
         end
         reducer = JACC.reducer(;
-            backend = oneAPIBackend(), type = JACC.default_float(),
+            backend = oneAPIBackend, type = JACC.default_float(),
             range = (M, part_range), op = +, sync = false)
         reducer(f, process_param.((x), dev_id)...)
         rret[i] = reducer.workspace.ret
@@ -525,7 +526,7 @@ end
 function _multi_copy_ghosttoarray(x::ArrayPart, y::ArrayPart, ndev::Integer)
     #x is the array and y is the ghost array
     i = get_global_id()
-    id = JACC.Multi.ghost_shift(oneAPIBackend(), i, y)
+    id = JACC.Multi.ghost_shift(oneAPIBackend, i, y)
     x[i] = y[id]
     return nothing
 end
@@ -533,7 +534,7 @@ end
 function _multi_copy_arraytoghost(x::ArrayPart, y::ArrayPart, ndev::Integer)
     #x is the ghost array and y is the array
     i = get_global_id()
-    id = JACC.Multi.ghost_shift(oneAPIBackend(), i, x)
+    id = JACC.Multi.ghost_shift(oneAPIBackend, i, x)
     x[id] = y[i]
     return nothing
 end

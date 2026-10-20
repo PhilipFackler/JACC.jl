@@ -2,20 +2,21 @@ module MetalExt
 
 using JACC, Metal
 
-# overloaded array functions
-include("array.jl")
-
 JACC.get_backend(::Val{:metal}) = MetalBackend()
+JACC.get_backend_type(::Val{:metal}) = MetalBackend
+const MetalTag = Type{MetalBackend}
+
+include("array.jl")
 
 default_stream() = Metal.global_queue(Metal.device())
 
-JACC.default_stream(::MetalBackend) = default_stream()
+JACC.default_stream(::MetalTag) = default_stream()
 
-function JACC.create_stream(::MetalBackend)
+function JACC.create_stream(::MetalTag)
     Metal.MTL.MTLCommandQueue(Metal.device())
 end
 
-function JACC.synchronize(::MetalBackend)
+function JACC.synchronize(::MetalTag)
     Metal.synchronize()
 end
 
@@ -42,7 +43,7 @@ end
     @metal name=kname threads=threads groups=groups f(args...)
 end
 
-function JACC.parallel_for(f, ::MetalBackend, N::Integer, x...; name = nothing)
+function JACC.parallel_for(f, ::MetalTag, N::Integer, x...; name = nothing)
     kargs = (N, f, x...)
     kernel, max_threads = _kernel_maxthreads(_parallel_for_metal, kargs, name)
     threads = min(N, max_threads)
@@ -52,7 +53,7 @@ function JACC.parallel_for(f, ::MetalBackend, N::Integer, x...; name = nothing)
 end
 
 function JACC.parallel_for(
-        f, ::MetalBackend, (M, N)::NTuple{2, Integer}, x...; name = nothing)
+        f, ::MetalTag, (M, N)::NTuple{2, Integer}, x...; name = nothing)
     maxItems = 32
     Mthreads = min(M, maxItems)
     Nthreads = min(N, maxItems)
@@ -68,7 +69,7 @@ function JACC.parallel_for(
 end
 
 function JACC.parallel_for(
-        f, ::MetalBackend, (L, M, N)::NTuple{3, Integer}, x...; name = nothing)
+        f, ::MetalTag, (L, M, N)::NTuple{3, Integer}, x...; name = nothing)
     maxItems = 32
     Lthreads = min(L, maxItems)
     Mthreads = min(M, maxItems)
@@ -160,12 +161,12 @@ mutable struct MetalReduceWorkspace{T, TP <: JACC.WkProp} <:
     ret::Metal.MtlArray{T}
 end
 
-function JACC.reduce_workspace(::MetalBackend, init::T) where {T}
+function JACC.reduce_workspace(::MetalTag, init::T) where {T}
     MetalReduceWorkspace{T, JACC.Managed}(
         Metal.MtlArray{T}(undef, 0), Metal.MtlArray{T}([init]))
 end
 
-function JACC.reduce_workspace(::MetalBackend, tmp::Metal.MtlArray{T},
+function JACC.reduce_workspace(::MetalTag, tmp::Metal.MtlArray{T},
         init::Metal.MtlArray{T}) where {T}
     MetalReduceWorkspace{T, JACC.Unmanaged}(tmp, init)
 end
@@ -221,7 +222,7 @@ function JACC._parallel_reduce!(reducer::JACC.ParallelReduce{MetalBackend},
     return nothing
 end
 
-function JACC.parallel_reduce(f, ::MetalBackend, N::Integer, x...; op, init,
+function JACC.parallel_reduce(f, ::MetalTag, N::Integer, x...; op, init,
         name = nothing)
     ret_inst = Metal.MtlArray{typeof(init)}(undef, 0)
     kargs1 = (Val(512), N, op, ret_inst, init, f, x...)
@@ -277,7 +278,7 @@ function JACC._parallel_reduce!(reducer::JACC.ParallelReduce{MetalBackend},
     return nothing
 end
 
-function JACC.parallel_reduce(f, ::MetalBackend, (M, N)::NTuple{2, Integer},
+function JACC.parallel_reduce(f, ::MetalTag, (M, N)::NTuple{2, Integer},
         x...; op, init, name = nothing)
     numItems = 16
     Mitems = numItems
@@ -302,7 +303,7 @@ function JACC.parallel_reduce(f, ::MetalBackend, (M, N)::NTuple{2, Integer},
     return Base.Array(rret)[]
 end
 
-@inline function JACC.parallel_reduce(f, ::MetalBackend,
+@inline function JACC.parallel_reduce(f, ::MetalTag,
         dims::NTuple{N, Integer}, x...; op, init, kw...) where {N}
     ids = CartesianIndices(dims)
     return JACC.parallel_reduce(JACC.ReduceKernel1DND{typeof(init)}(),
@@ -458,19 +459,19 @@ function _parallel_for_metal_LMN(L, M, N, f, x...)
 end
 # COV_EXCL_STOP
 
-function JACC.default_float(::MetalBackend)
+function JACC.default_float(::MetalTag)
     return Float32
 end
 
-function JACC.shared(::MetalBackend, x::AbstractArray)
+function JACC.shared(::MetalTag, x::AbstractArray)
     shmem = Metal.mtl(x; storage = Metal.SharedStorage)
     # Metal.threadgroup_barrier(Metal.MemoryFlagThreadGroup)
     return shmem
 end
 
-JACC.sync_workgroup(::MetalBackend) = Metal.threadgroup_barrier(Metal.MemoryFlagThreadGroup)
+JACC.sync_workgroup(::MetalTag) = Metal.threadgroup_barrier(Metal.MemoryFlagThreadGroup)
 
-JACC.array_type(::MetalBackend) = Metal.MtlArray
+JACC.array_type(::MetalTag) = Metal.MtlArray
 
 function _compute_array_storage()
     preferences = get(
@@ -506,15 +507,15 @@ function _array_storage()
     return value
 end
 
-function JACC._array(::MetalBackend, x::AbstractArray)
+function JACC._array(::MetalTag, x::AbstractArray)
     if _array_storage() == "shared"
         return Metal.MtlArray{eltype(x), ndims(x), Metal.SharedStorage}(x)
     end
     return Metal.MtlArray{eltype(x), ndims(x), Metal.PrivateStorage}(x)
 end
 
-JACC._array(::MetalBackend, x::Metal.MtlArray) = x
-JACC.array(backend::MetalBackend, x::Base.Array) = JACC._array(backend, x)
-JACC.array(::MetalBackend, x::Metal.MtlArray) = x
+JACC._array(::MetalTag, x::Metal.MtlArray) = x
+JACC.array(backend::MetalTag, x::Base.Array) = JACC._array(backend, x)
+JACC.array(::MetalTag, x::Metal.MtlArray) = x
 
 end # module MetalExt

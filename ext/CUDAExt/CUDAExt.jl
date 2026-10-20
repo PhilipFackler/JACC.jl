@@ -2,21 +2,23 @@ module CUDAExt
 
 using JACC, CUDA
 
+JACC.get_backend(::Val{:cuda}) = CUDABackend()
+JACC.get_backend_type(::Val{:cuda}) = CUDABackend
+const CUDATag = Type{CUDABackend}
+
 # overloaded array functions
 include("array.jl")
 include("multi.jl")
 include("async.jl")
 include("experimental/experimental.jl")
 
-JACC.get_backend(::Val{:cuda}) = CUDABackend()
-
 default_stream() = CUDA.stream()
 
-JACC.default_stream(::CUDABackend) = default_stream()
+JACC.default_stream(::CUDATag) = default_stream()
 
-JACC.create_stream(::CUDABackend) = CUDA.CuStream()
+JACC.create_stream(::CUDATag) = CUDA.CuStream()
 
-function JACC.synchronize(::CUDABackend; stream = default_stream())
+function JACC.synchronize(::CUDATag; stream = default_stream())
     CUDA.synchronize(stream)
 end
 
@@ -51,7 +53,7 @@ end
     return (p_kernel, CUDA.launch_configuration(p_kernel.fun).threads)
 end
 
-function JACC.parallel_for(f, ::CUDABackend, N::Integer, x...; name = nothing)
+function JACC.parallel_for(f, ::CUDATag, N::Integer, x...; name = nothing)
     kargs = _kernel_args(N, f, x...)
     kernel, shmem_size = _kernel_maxshmem(_parallel_for_cuda, kargs, name)
     config = CUDA.launch_configuration(kernel.fun; shmem = shmem_size)
@@ -139,7 +141,7 @@ function _parallel_for(indexer::TI, f, (m, n), (M, N), x...) where {TI}
 end
 
 function JACC.parallel_for(
-        f, ::CUDABackend, (M, N)::NTuple{2, Integer}, x...; name = nothing)
+        f, ::CUDATag, (M, N)::NTuple{2, Integer}, x...; name = nothing)
     dev = CUDA.device()
     maxBlocks = (
         x = attribute(dev, CUDA.DEVICE_ATTRIBUTE_MAX_GRID_DIM_X),
@@ -238,7 +240,7 @@ function JACC.parallel_for(
 end
 
 function JACC.parallel_for(
-        f, ::CUDABackend, (L, M, N)::NTuple{3, Integer}, x...; name = nothing)
+        f, ::CUDATag, (L, M, N)::NTuple{3, Integer}, x...; name = nothing)
     kargs = _kernel_args((L, M, N), f, x...)
     kernel, shmem_size = _kernel_maxshmem(_parallel_for_cuda_LMN, kargs, name)
     numThreads = 32
@@ -286,12 +288,12 @@ mutable struct CUDAReduceWorkspace{T, TP <: JACC.WkProp} <: JACC.ReduceWorkspace
     ret::CUDA.CuArray{T}
 end
 
-function JACC.reduce_workspace(::CUDABackend, init::T) where {T}
+function JACC.reduce_workspace(::CUDATag, init::T) where {T}
     CUDAReduceWorkspace{T, JACC.Managed}(
         CUDA.CuArray{T}(undef, 0), CUDA.CuArray([init]))
 end
 
-function JACC.reduce_workspace(::CUDABackend, tmp::CUDA.CuArray{T},
+function JACC.reduce_workspace(::CUDATag, tmp::CUDA.CuArray{T},
         init::CUDA.CuArray{T}) where {T}
     CUDAReduceWorkspace{T, JACC.Unmanaged}(tmp, init)
 end
@@ -354,7 +356,7 @@ function JACC._parallel_reduce!(reducer::JACC.ParallelReduce{CUDABackend},
     return nothing
 end
 
-function JACC.parallel_reduce(f, ::CUDABackend, N::Integer, x...; op, init,
+function JACC.parallel_reduce(f, ::CUDATag, N::Integer, x...; op, init,
         name = nothing)
     ret_inst = CUDA.CuArray{typeof(init)}(undef, 0)
 
@@ -423,7 +425,7 @@ function JACC._parallel_reduce!(reducer::JACC.ParallelReduce{CUDABackend},
 end
 
 function JACC.parallel_reduce(
-        f, ::CUDABackend, (M, N)::NTuple{2, Integer},
+        f, ::CUDATag, (M, N)::NTuple{2, Integer},
         x...; op, init, name = nothing)
     numThreads = 16
     Mthreads = numThreads
@@ -451,7 +453,7 @@ function JACC.parallel_reduce(
     return Base.Array(rret)[]
 end
 
-@inline function JACC.parallel_reduce(f, ::CUDABackend,
+@inline function JACC.parallel_reduce(f, ::CUDATag,
         dims::NTuple{N, Integer}, x...; op, init, kw...) where {N}
     ids = CartesianIndices(dims)
     return JACC.parallel_reduce(JACC.ReduceKernel1DND{typeof(init)}(),
@@ -601,7 +603,7 @@ function _reduce_kernel_cuda_MN((M, N), op, red, init, ret)
     return nothing
 end
 
-function JACC.shared(::CUDABackend, x::AbstractVector)
+function JACC.shared(::CUDATag, x::AbstractVector)
     len = length(x)
     shmem = CuDynamicSharedArray(eltype(x), len)
     # 1D kernel or 2D kernel at y == 1 (to avoid concurrent writes)
@@ -614,7 +616,7 @@ function JACC.shared(::CUDABackend, x::AbstractVector)
     return shmem
 end
 
-function JACC.shared(::CUDABackend, x::AbstractMatrix)
+function JACC.shared(::CUDATag, x::AbstractMatrix)
     len = length(x)
     shmem = CuDynamicSharedArray(eltype(x), size(x))
     num_threads = blockDim().x * blockDim().y
@@ -638,10 +640,10 @@ function JACC.shared(::CUDABackend, x::AbstractMatrix)
 end
 # COV_EXCL_STOP
 
-JACC.sync_workgroup(::CUDABackend) = CUDA.sync_threads()
+JACC.sync_workgroup(::CUDATag) = CUDA.sync_threads()
 
-JACC.array_type(::CUDABackend) = CUDA.CuArray
+JACC.array_type(::CUDATag) = CUDA.CuArray
 
-JACC.array(::CUDABackend, x::AbstractArray) = CUDA.CuArray(x)
+JACC.array(::CUDATag, x::AbstractArray) = CUDA.CuArray(x)
 
 end # module CUDAExt

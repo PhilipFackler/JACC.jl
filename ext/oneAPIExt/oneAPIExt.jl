@@ -2,22 +2,23 @@ module oneAPIExt
 
 using JACC, oneAPI, oneAPI.oneL0
 
-# overloaded array functions
+JACC.get_backend(::Val{:oneapi}) = oneAPIBackend()
+JACC.get_backend_type(::Val{:oneapi}) = oneAPIBackend
+const oneAPITag = Type{oneAPIBackend}
+
 include("array.jl")
 include("async.jl")
 include("experimental/experimental.jl")
 
-JACC.get_backend(::Val{:oneapi}) = oneAPIBackend()
-
 default_stream() = oneAPI.global_queue(oneAPI.context(), oneAPI.device())
 
-JACC.default_stream(::oneAPIBackend) = default_stream()
+JACC.default_stream(::oneAPITag) = default_stream()
 
-function JACC.create_stream(::oneAPIBackend)
+function JACC.create_stream(::oneAPITag)
     oneAPI.oneL0.ZeCommandQueue(oneAPI.context(), oneAPI.device())
 end
 
-function JACC.synchronize(::oneAPIBackend; stream = default_stream())
+function JACC.synchronize(::oneAPITag; stream = default_stream())
     oneAPI.synchronize(stream)
 end
 
@@ -34,7 +35,7 @@ end
     return @oneapi name=kname launch=false kernel_function(args...)
 end
 
-function JACC.parallel_for(f, ::oneAPIBackend, N::Integer, x...; name = nothing)
+function JACC.parallel_for(f, ::oneAPITag, N::Integer, x...; name = nothing)
     kernel = _make_kernel(name, _parallel_for_oneapi, N, f, x...)
     config_items = div(oneAPI.launch_configuration(kernel), 2)
     items = min(N, config_items, 256)
@@ -94,7 +95,7 @@ function _parallel_for(
 end
 
 function JACC.parallel_for(
-        f, ::oneAPIBackend, (M, N)::NTuple{2, Integer}, x...; kw...)
+        f, ::oneAPITag, (M, N)::NTuple{2, Integer}, x...; kw...)
     dev = oneAPI.device()
     props = oneAPI.compute_properties(dev)
     maxBlocks = (x = props.maxGroupCountX, y = props.maxGroupCountY)
@@ -143,7 +144,7 @@ function JACC.parallel_for(f, spec::LaunchSpec{oneAPIBackend},
 end
 
 function JACC.parallel_for(
-        f, ::oneAPIBackend, (L, M, N)::NTuple{3, Integer}, x...; name = nothing)
+        f, ::oneAPITag, (L, M, N)::NTuple{3, Integer}, x...; name = nothing)
     kernel = _make_kernel(name, _parallel_for_oneapi_LMN, (L, M, N), f, x...)
     maxItems = 8
     Litems = min(L, maxItems)
@@ -187,12 +188,12 @@ mutable struct oneAPIReduceWorkspace{T, TP <: JACC.WkProp} <:
     ret::oneAPI.oneArray{T}
 end
 
-function JACC.reduce_workspace(::oneAPIBackend, init::T) where {T}
+function JACC.reduce_workspace(::oneAPITag, init::T) where {T}
     oneAPIReduceWorkspace{T, JACC.Managed}(
         oneAPI.oneArray{T}(undef, 0), oneAPI.oneArray([init]))
 end
 
-function JACC.reduce_workspace(::oneAPIBackend, tmp::oneAPI.oneArray{T},
+function JACC.reduce_workspace(::oneAPITag, tmp::oneAPI.oneArray{T},
         init::oneAPI.oneArray{T}) where {T}
     oneAPIReduceWorkspace{T, JACC.Unmanaged}(tmp, init)
 end
@@ -243,7 +244,7 @@ function JACC._parallel_reduce!(reducer::JACC.ParallelReduce{oneAPIBackend},
     return nothing
 end
 
-function JACC.parallel_reduce(f, ::oneAPIBackend, N::Integer, x...; op, init,
+function JACC.parallel_reduce(f, ::oneAPITag, N::Integer, x...; op, init,
         name = nothing)
     ret_inst = oneAPI.oneArray{typeof(init)}(undef, 0)
     kernel1 = _make_kernel(_make_kname(name, "block_reduce"),
@@ -300,7 +301,7 @@ function JACC._parallel_reduce!(reducer::JACC.ParallelReduce{oneAPIBackend},
     return nothing
 end
 
-function JACC.parallel_reduce(f, ::oneAPIBackend, (M, N)::NTuple{2, Integer},
+function JACC.parallel_reduce(f, ::oneAPITag, (M, N)::NTuple{2, Integer},
         x...; op, init, name = nothing)
     numItems = 16
     Mitems = numItems
@@ -324,7 +325,7 @@ function JACC.parallel_reduce(f, ::oneAPIBackend, (M, N)::NTuple{2, Integer},
     return Base.Array(rret)[]
 end
 
-@inline function JACC.parallel_reduce(f, ::oneAPIBackend,
+@inline function JACC.parallel_reduce(f, ::oneAPITag,
         dims::NTuple{N, Integer}, x...; op, init, kw...) where {N}
     ids = CartesianIndices(dims)
     return JACC.parallel_reduce(JACC.ReduceKernel1DND{typeof(init)}(),
@@ -478,7 +479,7 @@ function _make_shared_similar(x::oneDeviceArray{T, N, A}) where {T, N, A}
     return Base.ReshapedArray(shmem_data, size(x), ())
 end
 
-function JACC.shared(::oneAPIBackend, x::AbstractVector)
+function JACC.shared(::oneAPITag, x::AbstractVector)
     len = length(x)
     shmem = _make_shared_similar(x)
     # 1D kernel or 2D kernel at y == 1 (to avoid concurrent writes)
@@ -491,7 +492,7 @@ function JACC.shared(::oneAPIBackend, x::AbstractVector)
     return shmem
 end
 
-function JACC.shared(::oneAPIBackend, x::AbstractMatrix)
+function JACC.shared(::oneAPITag, x::AbstractMatrix)
     len = length(x)
     shmem = _make_shared_similar(x)
     num_threads = get_local_size(1) * get_local_size(2)
@@ -514,11 +515,11 @@ function JACC.shared(::oneAPIBackend, x::AbstractMatrix)
     return shmem
 end
 
-JACC.sync_workgroup(::oneAPIBackend) = oneAPI.barrier(oneAPI.LOCAL_MEM_FENCE)
+JACC.sync_workgroup(::oneAPITag) = oneAPI.barrier(oneAPI.LOCAL_MEM_FENCE)
 
-JACC.array_type(::oneAPIBackend) = oneAPI.oneArray
+JACC.array_type(::oneAPITag) = oneAPI.oneArray
 
-JACC.array(::oneAPIBackend, x::Array) = oneAPI.oneArray(x)
+JACC.array(::oneAPITag, x::Array) = oneAPI.oneArray(x)
 
 DefaultFloat = Union{Type, Nothing}
 
@@ -534,7 +535,7 @@ function _get_default_float()
     end
 end
 
-function JACC.default_float(::oneAPIBackend)
+function JACC.default_float(::oneAPITag)
     global DefaultFloat
     if isa(nothing, DefaultFloat)
         DefaultFloat = _get_default_float()

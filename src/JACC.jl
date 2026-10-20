@@ -7,8 +7,10 @@ import Atomix: @atomic
 include("preferences.jl")
 
 get_backend(backend::Symbol) = get_backend(Val(backend))
+get_backend_type(backend::Symbol) = get_backend(Val(backend))
 
 @inline default_backend() = get_backend(_backend_dispatchable)
+@inline default_backend_type() = get_backend_type(_backend_dispatchable)
 
 const IDims = Union{Integer, NTuple{2, Integer}, NTuple{3, Integer}}
 const AllDims = Union{Integer, NTuple{N, Integer}} where {N}
@@ -33,29 +35,29 @@ public @parallel_for, @parallel_reduce
 
 ilog2(n::T) where {T <: Integer} = sizeof(T) * 8 - 1 - leading_zeros(n)
 
-default_stream() = default_stream(default_backend())
+default_stream() = default_stream(default_backend_type())
 
-create_stream() = create_stream(default_backend())
+create_stream() = create_stream(default_backend_type())
 
 @kwdef mutable struct LaunchSpec{Backend}
-    stream = default_stream(Backend())
+    stream = default_stream(Backend)
     threads = 0
     blocks = 0
     shmem_size::Int = -1
     sync::Bool = true
 end
 
-launch_spec(; kw...) = LaunchSpec{typeof(default_backend())}(; kw...)
+launch_spec(; kw...) = LaunchSpec{default_backend_type()}(; kw...)
 
 default_float(::Any) = Float64
 
-shared(x::AbstractArray) = shared(default_backend(), x)
+shared(x::AbstractArray) = shared(default_backend_type(), x)
 
-sync_workgroup() = sync_workgroup(default_backend())
+sync_workgroup() = sync_workgroup(default_backend_type())
 
-default_float() = default_float(default_backend())
+default_float() = default_float(default_backend_type())
 
-synchronize(; kw...) = synchronize(default_backend(); kw...)
+synchronize(; kw...) = synchronize(default_backend_type(); kw...)
 
 @inline function parallel_for(dims::AllDims, f, x...; kw...)
     parallel_for(f, dims, x...; kw...)
@@ -71,7 +73,7 @@ end
 end
 
 @inline function parallel_for(f, dims::IDims, x...; kw...)
-    parallel_for(f, default_backend(), dims, x...; kw...)
+    parallel_for(f, default_backend_type(), dims, x...; kw...)
 end
 
 @inline function parallel_for(spec::LaunchSpec, dims::AllDims, f, x...; kw...)
@@ -127,24 +129,24 @@ abstract type WkProp end
 struct Managed <: WkProp end
 struct Unmanaged <: WkProp end
 
-reduce_workspace() = reduce_workspace(default_backend(), default_float()())
+reduce_workspace() = reduce_workspace(default_backend_type(), default_float()())
 
-reduce_workspace(init::T) where {T} = reduce_workspace(default_backend(), init)
+reduce_workspace(init::T) where {T} = reduce_workspace(default_backend_type(), init)
 
 @kwdef mutable struct ParallelReduce{Backend, T, Op, R, W <: ReduceWorkspace}
     range::R = zeros(Int, R)
     op::Op = () -> nothing
     init::T = default_init(T, op)
-    stream = default_stream(Backend())
+    stream = default_stream(Backend)
     sync::Bool = true
-    workspace::W = reduce_workspace(Backend(), init)
+    workspace::W = reduce_workspace(Backend, init)
 end
 
 @inline function reducer(;
-        range, backend::Backend = default_backend(), type = nothing,
+        range, backend::Type{Backend} = default_backend_type(), type = nothing,
         op = +, init = nothing, kw...) where {Backend}
     _init = _resolve_init_type(op, type, init)
-    _workspace = reduce_workspace(default_backend(), _init)
+    _workspace = reduce_workspace(default_backend_type(), _init)
     ParallelReduce{
         Backend, typeof(_init), typeof(op), typeof(range), typeof(_workspace)}(;
         range = range, op = op, init = _init, workspace = _workspace, kw...)
@@ -193,19 +195,19 @@ end
         type = nothing, op = +, init = nothing, kw...)
     _init = _resolve_init_type(op, type, init)
     return parallel_reduce(
-        f, default_backend(), dims, x...; op = op, init = _init, kw...)
+        f, default_backend_type(), dims, x...; op = op, init = _init, kw...)
 end
 
 @inline function parallel_reduce(dims::AllDims, f, x...; kw...)
     return parallel_reduce(f, dims, x...; kw...)
 end
 
-@inline function parallel_reduce(f, spec::LaunchSpec{TBackend}, dims::AllDims,
-        x...; type = nothing, op = +, init = nothing, kw...) where {TBackend}
+@inline function parallel_reduce(f, spec::LaunchSpec{Backend}, dims::AllDims,
+        x...; type = nothing, op = +, init = nothing, kw...) where {Backend}
     _init = _resolve_init_type(op, type, init)
-    _workspace = JACC.reduce_workspace(TBackend(), _init)
+    _workspace = JACC.reduce_workspace(Backend, _init)
     reducer = ParallelReduce{
-        TBackend, typeof(_init), typeof(op), typeof(dims), typeof(_workspace)}(;
+        Backend, typeof(_init), typeof(op), typeof(dims), typeof(_workspace)}(;
         range = dims,
         op = op,
         init = _init,

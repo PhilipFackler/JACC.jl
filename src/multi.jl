@@ -4,39 +4,39 @@ import Base: Callable
 using JACC
 
 function ndev()
-    return ndev(JACC.default_backend())
+    return ndev(JACC.default_backend_type())
 end
 
 function part_length(x)
-    return part_length(JACC.default_backend(), x)
+    return part_length(JACC.default_backend_type(), x)
 end
 
 function device_id(x)
-    return device_id(JACC.default_backend(), x)
+    return device_id(JACC.default_backend_type(), x)
 end
 
 function multi_array_type()
-    return multi_array_type(JACC.default_backend())
+    return multi_array_type(JACC.default_backend_type())
 end
 
 function array(x::Base.Array; ghost_dims = 0)
-    return array(JACC.default_backend(), x; ghost_dims = ghost_dims)
+    return array(JACC.default_backend_type(), x; ghost_dims = ghost_dims)
 end
 
 function ghost_shift(idx::Union{Integer, NTuple{2, Integer}}, arr)
-    return ghost_shift(JACC.default_backend(), idx, arr)
+    return ghost_shift(JACC.default_backend_type(), idx, arr)
 end
 
 function sync_ghost_elems!(arr)
-    return sync_ghost_elems!(JACC.default_backend(), arr)
+    return sync_ghost_elems!(JACC.default_backend_type(), arr)
 end
 
 function copy!(dest, src)
-    return copy!(JACC.default_backend(), dest, src)
+    return copy!(JACC.default_backend_type(), dest, src)
 end
 
 function parallel_for(N::Integer, f::Callable, x...)
-    return parallel_for(JACC.default_backend(), N, f, x...)
+    return parallel_for(JACC.default_backend_type(), N, f, x...)
 end
 
 @inline function parallel_for(f::Callable, N::Integer, x...)
@@ -44,7 +44,7 @@ end
 end
 
 function parallel_for((M, N)::NTuple{2, Integer}, f::Callable, x...)
-    return parallel_for(JACC.default_backend(), (M, N), f, x...)
+    return parallel_for(JACC.default_backend_type(), (M, N), f, x...)
 end
 
 @inline function parallel_for(f::Callable, (M, N)::NTuple{2, Integer}, x...)
@@ -52,10 +52,10 @@ end
 end
 
 function parallel_reduce(N::Integer, f::Callable, x...)
-    return parallel_reduce(JACC.default_backend(), N, f, x...)
+    return parallel_reduce(JACC.default_backend_type(), N, f, x...)
 end
 
 function parallel_reduce((M, N)::NTuple{2, Integer}, f::Callable, x...)
-    return parallel_reduce(JACC.default_backend(), (M, N), f, x...)
+    return parallel_reduce(JACC.default_backend_type(), (M, N), f, x...)
 end
 end # module Multi

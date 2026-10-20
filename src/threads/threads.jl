@@ -8,6 +8,7 @@ import JACC: LaunchSpec
 struct ThreadsBackend end
 
 @inline JACC.get_backend(::Val{:threads}) = ThreadsBackend()
+@inline JACC.get_backend_type(::Val{:threads}) = ThreadsBackend
 
 function _maybe_threaded(ex)
     quote
@@ -28,13 +29,13 @@ include("multi.jl")
 include("async.jl")
 include("experimental/experimental.jl")
 
-JACC.synchronize(::ThreadsBackend) = nothing
+JACC.synchronize(::Type{ThreadsBackend}) = nothing
 
-JACC.default_stream(::ThreadsBackend) = nothing
+JACC.default_stream(::Type{ThreadsBackend}) = nothing
 
-JACC.create_stream(::ThreadsBackend) = nothing
+JACC.create_stream(::Type{ThreadsBackend}) = nothing
 
-@inline function JACC.parallel_for(f, ::ThreadsBackend, N::Integer, x...; kw...)
+@inline function JACC.parallel_for(f, ::Type{ThreadsBackend}, N::Integer, x...; kw...)
     @maybe_threaded for i in 1:N
         f(i, x...)
     end
@@ -43,7 +44,7 @@ end
 @inline function JACC.parallel_for(
         f, spec::LaunchSpec{ThreadsBackend}, N::Integer, x...; kw...)
     if spec.threads == 0
-        JACC.parallel_for(f, ThreadsBackend(), N, x...)
+        JACC.parallel_for(f, ThreadsBackend, N, x...)
     else
         _BARRIER[] = Detail.SimpleBarrier(spec.threads)
         fetch.([Threads.@spawn f(i, x...) for i in 1:N])
@@ -52,7 +53,7 @@ end
 end
 
 @inline function JACC.parallel_for(
-        f, ::ThreadsBackend, (M, N)::NTuple{2, Integer}, x...; kw...)
+        f, ::Type{ThreadsBackend}, (M, N)::NTuple{2, Integer}, x...; kw...)
     @maybe_threaded for ij in CartesianIndices((M, N))
         f(ij[1], ij[2], x...)
     end
@@ -66,7 +67,7 @@ end
 end
 
 @inline function JACC.parallel_for(
-        f, ::ThreadsBackend, (L, M, N)::NTuple{3, Integer}, x...; kw...)
+        f, ::Type{ThreadsBackend}, (L, M, N)::NTuple{3, Integer}, x...; kw...)
     @maybe_threaded for ijk in CartesianIndices((L, M, N))
         f(ijk[1], ijk[2], ijk[3], x...)
     end
@@ -84,7 +85,7 @@ mutable struct ThreadsReduceWorkspace{T} <: JACC.ReduceWorkspace
     ret::Vector{T}
 end
 
-@inline function JACC.reduce_workspace(::ThreadsBackend, init::T) where {T}
+@inline function JACC.reduce_workspace(::Type{ThreadsBackend}, init::T) where {T}
     if Threads.nthreads() == 1
         ThreadsReduceWorkspace{T}(T[], [init])
     else
@@ -137,9 +138,9 @@ end
 end
 
 @inline function JACC.parallel_reduce(
-        f, ::ThreadsBackend, N::Integer, x...; op, init, kw...)
+        f, ::Type{ThreadsBackend}, N::Integer, x...; op, init, kw...)
     reducer = JACC.reducer(
-        backend = ThreadsBackend(), range = N, op = op, init = init)
+        backend = ThreadsBackend, range = N, op = op, init = init)
     reducer(f, x...)
     return JACC.get_result(reducer)
 end
@@ -190,17 +191,17 @@ end
     return nothing
 end
 
-@inline function JACC.parallel_reduce(f, ::ThreadsBackend,
+@inline function JACC.parallel_reduce(f, ::Type{ThreadsBackend},
         (M, N)::NTuple{2, Integer}, x...; op, init, kw...)
     dims = (M, N)
     reducer = JACC.reducer(
-        backend = ThreadsBackend(), range = dims, op = op, init = init)
+        backend = ThreadsBackend, range = dims, op = op, init = init)
     reducer(f, x...)
     return JACC.get_result(reducer)
 end
 
 @inline function JACC.parallel_reduce(
-        f, ::ThreadsBackend, dims::NTuple{N, Integer},
+        f, ::Type{ThreadsBackend}, dims::NTuple{N, Integer},
         x...; op, init, kw...)::typeof(init) where {N}
     ids = CartesianIndices(dims)
     return JACC.parallel_reduce(
@@ -239,13 +240,13 @@ end # module Detail
 
 const _BARRIER = Ref(Detail.SimpleBarrier(0))
 
-JACC.sync_workgroup(::ThreadsBackend) = wait(_BARRIER[])
+JACC.sync_workgroup(::Type{ThreadsBackend}) = wait(_BARRIER[])
 
-JACC.array_type(::ThreadsBackend) = Base.Array
+JACC.array_type(::Type{ThreadsBackend}) = Base.Array
 
-JACC.array(::ThreadsBackend, x::AbstractArray) = x
+JACC.array(::Type{ThreadsBackend}, x::AbstractArray) = x
 
-JACC.shared(::ThreadsBackend, x::AbstractArray) = x
+JACC.shared(::Type{ThreadsBackend}, x::AbstractArray) = x
 
 function __init__()
     _BARRIER[] = Detail.SimpleBarrier(Threads.nthreads())

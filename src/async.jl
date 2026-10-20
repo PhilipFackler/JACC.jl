@@ -4,43 +4,43 @@ import Base: Callable
 using JACC
 
 function zeros(::Type{T}, id, dims...) where {T}
-    return zeros(JACC.default_backend(), T, id, dims...)
+    return zeros(JACC.default_backend_type(), T, id, dims...)
 end
 
 function ones(::Type{T}, id, dims...) where {T}
-    return ones(JACC.default_backend(), T, id, dims...)
+    return ones(JACC.default_backend_type(), T, id, dims...)
 end
 
 zeros(id::Integer, dims::Integer...) = zeros(default_float(), id, dims...)
 ones(id::Integer, dims::Integer...) = ones(default_float(), id, dims...)
-fill(id, value, dims...) = fill(JACC.default_backend(), id, value, dims...)
+fill(id, value, dims...) = fill(JACC.default_backend_type(), id, value, dims...)
 
 function ndev()
-    return ndev(JACC.default_backend())
+    return ndev(JACC.default_backend_type())
 end
 
 function synchronize()
-    return synchronize(JACC.default_backend())
+    return synchronize(JACC.default_backend_type())
 end
 
 function synchronize(id::Integer)
-    return synchronize(JACC.default_backend(), id)
+    return synchronize(JACC.default_backend_type(), id)
 end
 
 function array(id::Integer, x::Base.Array{T, N}) where {T, N}
-    return array(JACC.default_backend(), id, x)
+    return array(JACC.default_backend_type(), id, x)
 end
 
 function copy(
     #id_dest::Integer, x::Base.Array{T, N}, id_orig::Integer,
     #y::Base.Array{T, N}) where {T, N}
         x...)
-    #return copy(JACC.default_backend(), id_dest, x, id_orig, y)
-    return copy(JACC.default_backend(), x...)
+    #return copy(JACC.default_backend_type(), id_dest, x, id_orig, y)
+    return copy(JACC.default_backend_type(), x...)
 end
 
 function parallel_for(id::Integer, dims::JACC.IDims, f::Callable, x...)
-    return parallel_for(JACC.default_backend(), id, dims, f, x...)
+    return parallel_for(JACC.default_backend_type(), id, dims, f, x...)
 end
 
 function parallel_for(f::Callable, id::Integer, dims::JACC.IDims, x...)
@@ -50,7 +50,7 @@ end
 function parallel_reduce(
         id::Integer, dims::JACC.IDims, op::Callable, f::Callable, x...; init)
     return parallel_reduce(
-        JACC.default_backend(), id, dims, op, f, x...; init = init)
+        JACC.default_backend_type(), id, dims, op, f, x...; init = init)
 end
 
 function parallel_reduce(id::Integer, dims::JACC.IDims, f::Callable, x...)

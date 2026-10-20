@@ -66,8 +66,8 @@ end
     x = JACC.array(h)
     @test typeof(x) == ROCVector{Float32, HIPBuffer}
     @test JACC.array(x) === x
-    @test JACC.array(JACC.default_backend(), x) === x
-    @test JACC.array(JACC.default_backend(), h) isa
+    @test JACC.array(JACC.default_backend_type(), x) === x
+    @test JACC.array(JACC.default_backend_type(), h) isa
           ROCVector{Float32, HIPBuffer}
     try
         @suppress JACC.set_backend("AMDGPU"; storage = :host)
@@ -79,8 +79,8 @@ end
         @test typeof(xs) == ROCVector{Float32, HostBuffer}
         @test Array(xs) == h
         @test JACC.array(xs) === xs
-        @test JACC.array(JACC.default_backend(), xs) === xs
-        @test JACC.array(JACC.default_backend(), h) isa
+        @test JACC.array(JACC.default_backend_type(), xs) === xs
+        @test JACC.array(JACC.default_backend_type(), h) isa
               ROCVector{Float32, HostBuffer}
         h2 = ones(Float32, N, N)
         xs2 = JACC.array(h2)
