@@ -19,7 +19,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        jobname: [NVHPC25_9-CUDA13-JULIA1_11_7-CUDAJL5_9]
+        jobname: [NVHPC25_9-CUDA13-JULIA1_13]
 
     steps:
       # Only trigger CI for certain "actors" (those commenting the PR, not the PR originator)
@@ -109,21 +109,22 @@ jobs:
           sha: ${{fromJson(steps.request.outputs.data).head.sha}}
           target_url: https://github.com/${{github.repository}}/actions/runs/${{github.run_id}}
 
-  GTX1080:
+  A100:
     if: |
       github.repository_owner == 'JuliaGPU' &&
       github.event.issue.pull_request &&
       startsWith(github.event.comment.body, 'Test this please')
 
-    runs-on: [self-hosted, Linux, X64, pc-wfg]
+    runs-on: [self-hosted, Linux, X64, milan0]
 
     env:
       GH_JOBNAME: ${{matrix.jobname}}
       GH_OS: Linux
+      JULIA_DEPOT_PATH: /home/wfg/.julia-milan0
     strategy:
       fail-fast: false
       matrix:
-        jobname: [NVHPC25_9-CUDA12_9-JULIA1_12_0-CUDAJL5_9]
+        jobname: [NVHPC26_5-CUDA13-JULIA1_12]
 
     steps:
       # Only trigger CI for certain "actors" (those commenting the PR, not the PR originator)
@@ -178,12 +179,23 @@ jobs:
       - name: Instantiate
         if: steps.check.outputs.triggered == 'true'
         run: |
+          source /etc/profile.d/lmod.sh
+          module load julia/1.12.6
+          julia --version
+          echo $JULIA_DEPOT_PATH
+          module load nvhpc/26.5
           julia --project -e 'using Pkg; Pkg.instantiate()'
           julia --project -e 'using JACC; JACC.set_backend("CUDA")'
 
       - name: Test
         if: steps.check.outputs.triggered == 'true'
-        uses: julia-actions/julia-runtest@v1
+        run: |
+          source /etc/profile.d/lmod.sh
+          module load julia/1.12.6
+          julia --version
+          echo $JULIA_DEPOT_PATH
+          module load nvhpc/26.5
+          julia --project -e 'using Pkg; Pkg.test(coverage=true, julia_args=["--check-bounds=yes", "--compiled-modules=yes", "--depwarn=yes"], force_latest_compatible_version=false, allow_reresolve=true)'
 
       - name: Process Coverage
         if: steps.check.outputs.triggered == 'true'
